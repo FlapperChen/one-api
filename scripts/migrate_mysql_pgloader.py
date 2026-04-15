@@ -19,6 +19,10 @@ Options:
     --pg-password PASS     PostgreSQL password (required)
     --pg-db DB             PostgreSQL database (default: oneapi)
 
+    --backup               在迁移前自动备份 PostgreSQL 数据 (default: True)
+    --backup-dir DIR       备份文件保存目录 (default: ./backups)
+    --skip-backup          跳过备份，直接迁移
+
     -h, --help             Show this help message
 
 Examples:
@@ -33,6 +37,9 @@ Examples:
         --mysql-host localhost --mysql-port 3306 --mysql-user root --mysql-password oneapimmysql --mysql-db oneapi \\
         --pg-host localhost --pg-port 5432 --pg-user postgres --pg-password NCbmc@123 --pg-db oneapi
 
+    # 跳过备份，直接迁移
+    python3 migrate_mysql_pgloader.py --skip-backup
+
 This script migrates data from Docker MySQL to PostgreSQL.
 Default: MySQL: root:oneapimmysql@localhost:3306/oneapi
          PostgreSQL: postgres:NCbmc@123@localhost:5432/oneapi
@@ -41,6 +48,8 @@ Default: MySQL: root:oneapimmysql@localhost:3306/oneapi
 import sys
 import os
 import argparse
+import subprocess
+from datetime import datetime
 
 try:
     import pymysql
@@ -122,6 +131,14 @@ def parse_args():
     parser.add_argument('--pg-db', dest='pg_database', default=DEFAULT_POSTGRES['database'],
                         help=f"PostgreSQL database (default: {DEFAULT_POSTGRES['database']})")
 
+    # 备份配置
+    parser.add_argument('--backup', action='store_true', default=True,
+                        help="在迁移前自动备份 PostgreSQL 数据 (default: True)")
+    parser.add_argument('--backup-dir', default='./backups',
+                        help="备份文件保存目录 (default: ./backups)")
+    parser.add_argument('--skip-backup', action='store_true', default=False,
+                        help="跳过备份，直接迁移")
+
     return parser.parse_args()
 
 
@@ -148,6 +165,86 @@ def get_pg_connection(args):
         'database': args.pg_database
     }
     return psycopg2.connect(**config)
+
+
+def backup_postgres(args):
+    """备份 PostgreSQL 数据库"""
+    print("\n" + "=" * 50)
+    print("执行数据库备份...")
+    print("=" * 50)
+
+    # 安全确认：只备份 oneapi 数据库
+    target_db = args.pg_database
+    print(f"\n⚠️  安全提示: 仅会影响数据库 【{target_db}】")
+    print("   不会影响 PostgreSQL 中的其他数据库")
+
+    # 创建备份目录
+    backup_dir = os.path.abspath(args.backup_dir)
+    os.makedirs(backup_dir, exist_ok=True)
+
+    # 生成备份文件名
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    backup_file = os.path.join(backup_dir, f"oneapi_backup_{timestamp}.sql")
+
+    # 构建 pg_dump 命令
+    env = os.environ.copy()
+    env['PGPASSWORD'] = args.pg_password
+
+    cmd = [
+        'pg_dump',
+        '-h', args.pg_host,
+        '-p', str(args.pg_port),
+        '-U', args.pg_user,
+        '-F', 'c',  # 自定义格式 (可压缩)
+        '-b',       # 包含大对象
+        '-v',       # 详细输出
+        '-f', backup_file,
+        target_db   # 只备份目标数据库
+    ]
+
+    print(f"\n备份文件: {backup_file}")
+    print(f"数据库: {target_db}")
+
+    try:
+        # 检查是否有数据
+        conn = get_pg_connection(args)
+        cur = conn.cursor()
+        cur.execute("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public'")
+        table_count = cur.fetchone()[0]
+        cur.close()
+        conn.close()
+
+        if table_count == 0:
+            print("\n数据库为空，跳过备份")
+            return None
+
+        # 执行备份
+        print("\n正在备份...")
+        result = subprocess.run(cmd, env=env, capture_output=True, text=True)
+
+        if result.returncode == 0:
+            # 获取文件大小
+            file_size = os.path.getsize(backup_file)
+            size_mb = file_size / (1024 * 1024)
+
+            print(f"\n✓ 备份成功!")
+            print(f"  文件: {backup_file}")
+            print(f"  大小: {size_mb:.2f} MB")
+            print(f"\n恢复命令:")
+            print(f"  pg_restore -h {args.pg_host} -p {args.pg_port} -U {args.pg_user} -d {args.pg_database} {backup_file}")
+
+            return backup_file
+        else:
+            print(f"\n✗ 备份失败: {result.stderr}")
+            return None
+
+    except FileNotFoundError:
+        print("\n✗ pg_dump 未安装，无法创建备份")
+        print("  安装: sudo apt-get install postgresql-client")
+        return None
+    except Exception as e:
+        print(f"\n✗ 备份出错: {e}")
+        return None
 
 
 def migrate_table(args, table_name):
@@ -272,6 +369,20 @@ def main():
     # 显示配置
     print(f"\nMySQL: {args.mysql_user}@{args.mysql_host}:{args.mysql_port}/{args.mysql_database}")
     print(f"PostgreSQL: {args.pg_user}@{args.pg_host}:{args.pg_port}/{args.pg_database}")
+
+    # 安全提示
+    print(f"\n⚠️  警告: 将清空 PostgreSQL 数据库 【{args.pg_database}】 中的以下表:")
+    print(f"   {', '.join(TABLES)}")
+    print(f"   不会影响 PostgreSQL 中的其他数据库")
+
+    # 备份 PostgreSQL 数据
+    if not args.skip_backup:
+        backup_file = backup_postgres(args)
+        if backup_file is None and args.skip_backup:
+            print("\n无法创建备份，继续迁移...")
+    else:
+        print("\n跳过备份，直接迁移")
+        backup_file = None
 
     # 测试连接
     print("\nTesting MySQL connection...")
