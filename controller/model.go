@@ -123,44 +123,6 @@ func DashboardListModels(c *gin.Context) {
 }
 
 func ListAllModels(c *gin.Context) {
-	// Include models from channel configurations (stored in Ability table)
-	channelModels, err := model.GetAllChannelModels()
-	if err == nil && len(channelModels) > 0 {
-		// Merge channel models with hardcoded models
-		existingModels := make(map[string]bool)
-		for _, m := range models {
-			existingModels[m.Id] = true
-		}
-		var permission []OpenAIModelPermission
-		permission = append(permission, OpenAIModelPermission{
-			Id:                 "modelperm-LwHkVFn8AcMItP432fKKDIKJ",
-			Object:             "model_permission",
-			Created:            1626777600,
-			AllowCreateEngine:  true,
-			AllowSampling:      true,
-			AllowLogprobs:      true,
-			AllowSearchIndices: false,
-			AllowView:          true,
-			AllowFineTuning:    false,
-			Organization:       "*",
-			Group:              nil,
-			IsBlocking:         false,
-		})
-		for _, modelName := range channelModels {
-			if !existingModels[modelName] {
-				models = append(models, OpenAIModels{
-					Id:         modelName,
-					Object:     "model",
-					Created:    1626777600,
-					OwnedBy:    "custom",
-					Permission: permission,
-					Root:       modelName,
-					Parent:     nil,
-				})
-				existingModels[modelName] = true
-			}
-		}
-	}
 	c.JSON(200, gin.H{
 		"object": "list",
 		"data":   models,

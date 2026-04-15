@@ -110,18 +110,3 @@ func GetGroupModels(ctx context.Context, group string) ([]string, error) {
 	sort.Strings(models)
 	return models, err
 }
-
-// GetAllChannelModels returns all models from channel configurations (Ability table)
-func GetAllChannelModels() ([]string, error) {
-	trueVal := "1"
-	if common.UsingPostgreSQL {
-		trueVal = "true"
-	}
-	var models []string
-	err := DB.Model(&Ability{}).Distinct("model").Where("enabled = "+trueVal).Pluck("model", &models).Error
-	if err != nil {
-		return nil, err
-	}
-	sort.Strings(models)
-	return models, nil
-}
