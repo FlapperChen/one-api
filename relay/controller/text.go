@@ -97,6 +97,11 @@ func getRequestBody(c *gin.Context, meta *meta.Meta, textRequest *model.GeneralO
 		return c.Request.Body, nil
 	}
 
+	// For AnthropicCompatible, pass through the raw request body without conversion
+	if meta.APIType == apitype.AnthropicCompatible {
+		return c.Request.Body, nil
+	}
+
 	// get request body
 	var requestBody io.Reader
 	convertedRequest, err := adaptor.ConvertRequest(c, meta.Mode, textRequest)

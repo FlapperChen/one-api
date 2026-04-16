@@ -13,4 +13,6 @@ const (
 	AudioTranslation
 	// Proxy is a special relay mode for proxying requests to custom upstream
 	Proxy
+	// Messages is for Anthropic format /v1/messages
+	Messages
 )

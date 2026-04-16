@@ -11,6 +11,13 @@ export const CHANNEL_OPTIONS = {
     value: 14,
     color: 'primary'
   },
+  56: {
+    key: 56,
+    text: 'Anthropic 兼容',
+    value: 56,
+    color: 'primary',
+    description: '支持 Anthropic 格式 /v1/messages API'
+  },
   33: {
     key: 33,
     text: 'AWS',
