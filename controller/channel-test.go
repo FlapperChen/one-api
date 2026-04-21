@@ -27,6 +27,7 @@ import (
 	"github.com/songquanpeng/one-api/monitor"
 	"github.com/songquanpeng/one-api/relay"
 	"github.com/songquanpeng/one-api/relay/adaptor/openai"
+	"github.com/songquanpeng/one-api/relay/apitype"
 	"github.com/songquanpeng/one-api/relay/channeltype"
 	"github.com/songquanpeng/one-api/relay/controller"
 	"github.com/songquanpeng/one-api/relay/meta"
@@ -63,6 +64,25 @@ func parseTestResponse(resp string) (*openai.TextResponse, string, error) {
 		return nil, "", errors.New("response content is not string")
 	}
 	return &response, stringContent, nil
+}
+
+// parseAnthropicTestResponse parses Anthropic format response for channel testing
+type anthropicTestResponse struct {
+	Content []struct {
+		Text string `json:"text"`
+	} `json:"content"`
+}
+
+func parseAnthropicTestResponse(resp string) (string, error) {
+	var response anthropicTestResponse
+	err := json.Unmarshal([]byte(resp), &response)
+	if err != nil {
+		return "", err
+	}
+	if len(response.Content) == 0 {
+		return "", errors.New("response has no content")
+	}
+	return response.Content[0].Text, nil
 }
 
 func testChannel(ctx context.Context, channel *model.Channel, request *relaymodel.GeneralOpenAIRequest) (responseMessage string, err error, openaiErr *relaymodel.Error) {
@@ -151,7 +171,13 @@ func testChannel(ctx context.Context, channel *model.Channel, request *relaymode
 		return "", errors.New("usage is nil"), nil
 	}
 	rawResponse := w.Body.String()
-	_, responseMessage, err = parseTestResponse(rawResponse)
+
+	// Use appropriate parser based on API type
+	if apiType == apitype.AnthropicCompatible {
+		responseMessage, err = parseAnthropicTestResponse(rawResponse)
+	} else {
+		_, responseMessage, err = parseTestResponse(rawResponse)
+	}
 	if err != nil {
 		logger.SysError(fmt.Sprintf("failed to parse error: %s, \nresponse: %s", err.Error(), rawResponse))
 		return "", err, nil

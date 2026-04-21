@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl -X POST http://10.31.133.114:3009/v1/messages -H 'Authorization: Bearer Cp1kKrXYYALHyALJ81AbF520E1F847D2Bd291388443a1c59' -H 'anthropic-version: 2023-06-01' -H 'Content-Type: application/json' -d '{ *)",
+      "Bash(fuser -k 3009/tcp)",
+      "Bash(SQL_DSN=\"postgres://postgres:密码@localhost:5432/oneapi?sslmode=disable\" ./one-api --port 3009 --log-dir ./logs)",
+      "Bash(curl -s -X POST http://10.31.133.114:3009/v1/messages -H 'Authorization: Bearer Cp1kKrXYYALHyALJ81AbF520E1F847D2Bd291388443a1c59' -H 'anthropic-version: 2023-06-01' -H 'Content-Type: application/json' -d '{ *)"
+    ]
+  }
+}

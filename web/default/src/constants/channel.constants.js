@@ -8,7 +8,7 @@ export const CHANNEL_OPTIONS = [
     description: 'OpenAI 兼容渠道，支持设置 Base URL',
   },
   {key: 14, text: 'Anthropic', value: 14, color: 'black'},
-  {key: 56, text: 'Anthropic 兼容', value: 56, color: 'black', description: '支持 Anthropic 格式 /v1/messages API'},
+  {key: 52, text: 'Anthropic 兼容', value: 52, color: 'black', description: '支持 Anthropic 格式 /v1/messages API'},
   { key: 33, text: 'AWS', value: 33, color: 'black' },
   {key: 3, text: 'Azure', value: 3, color: 'olive'},
   {key: 11, text: 'PaLM2', value: 11, color: 'orange'},

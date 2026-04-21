@@ -214,9 +214,14 @@ docker-compose ps
 2. 运行：
    ```shell
    chmod u+x one-api
-   ./one-api --port 3000 --log-dir ./logs
+   # 使用 SQLite（默认）
+   ./one-api --port 3009 --log-dir ./logs
+
+   # 使用 PostgreSQL 数据库
+   # 格式：postgres://用户名:密码@主机:端口/数据库名?sslmode=disable
+   SQL_DSN="postgres://postgres:NCbmc%40123@localhost:5432/oneapi?sslmode=disable" ./one-api --port 3009 --log-dir ./logs
    ```
-3. 访问 [http://localhost:3000/](http://localhost:3000/) 并登录。初始账号用户名为 `root`，密码为 `123456`。
+3. 访问 [http://localhost:3009/](http://localhost:3009/) 并登录。初始账号用户名为 `root`，密码为 `123456`。
 
 更加详细的部署教程[参见此处](https://iamazing.cn/page/how-to-deploy-a-website)。
 

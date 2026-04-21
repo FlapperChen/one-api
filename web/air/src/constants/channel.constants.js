@@ -1,6 +1,9 @@
 export const CHANNEL_OPTIONS = [
   { key: 1, text: 'OpenAI', value: 1, color: 'green' },
   { key: 14, text: 'Anthropic Claude', value: 14, color: 'black' },
+  { key: 52, text: 'Anthropic 兼容', value: 52, color: 'black', description: '支持 Anthropic 格式 /v1/messages API' },
+  { key: 50, text: 'OpenAI 兼容', value: 50, color: 'olive', description: 'OpenAI 兼容渠道，支持设置 Base URL' },
+  { key: 51, text: 'Gemini OpenAI 兼容', value: 51, color: 'orange', description: 'Gemini OpenAI 兼容格式' },
   { key: 33, text: 'AWS', value: 33, color: 'black' },
   { key: 3, text: 'Azure OpenAI', value: 3, color: 'olive' },
   { key: 11, text: 'Google PaLM2', value: 11, color: 'orange' },

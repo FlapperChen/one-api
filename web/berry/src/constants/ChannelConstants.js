@@ -11,12 +11,26 @@ export const CHANNEL_OPTIONS = {
     value: 14,
     color: 'primary'
   },
-  56: {
-    key: 56,
+  52: {
+    key: 52,
     text: 'Anthropic 兼容',
-    value: 56,
+    value: 52,
     color: 'primary',
     description: '支持 Anthropic 格式 /v1/messages API'
+  },
+  50: {
+    key: 50,
+    text: 'OpenAI 兼容',
+    value: 50,
+    color: 'primary',
+    description: 'OpenAI 兼容渠道，支持设置 Base URL'
+  },
+  51: {
+    key: 51,
+    text: 'Gemini OpenAI 兼容',
+    value: 51,
+    color: 'warning',
+    description: 'Gemini OpenAI 兼容格式'
   },
   33: {
     key: 33,

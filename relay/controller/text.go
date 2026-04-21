@@ -9,6 +9,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/songquanpeng/one-api/common"
 	"github.com/songquanpeng/one-api/common/config"
 	"github.com/songquanpeng/one-api/common/logger"
 	"github.com/songquanpeng/one-api/relay"
@@ -25,6 +26,7 @@ import (
 func RelayTextHelper(c *gin.Context) *model.ErrorWithStatusCode {
 	ctx := c.Request.Context()
 	meta := meta.GetByContext(c)
+	logger.Infof(ctx, "[RelayTextHelper] ChannelType=%d, APIType=%d, Mode=%d", meta.ChannelType, meta.APIType, meta.Mode)
 	// get & validate textRequest
 	textRequest, err := getAndValidateTextRequest(c, meta.Mode)
 	if err != nil {
@@ -97,9 +99,15 @@ func getRequestBody(c *gin.Context, meta *meta.Meta, textRequest *model.GeneralO
 		return c.Request.Body, nil
 	}
 
-	// For AnthropicCompatible, pass through the raw request body without conversion
+	// For AnthropicCompatible, use cached original request body directly (pass-through)
 	if meta.APIType == apitype.AnthropicCompatible {
-		return c.Request.Body, nil
+		bodyBytes, err := common.GetRequestBody(c)
+		if err != nil {
+			logger.Errorf(c.Request.Context(), "[AnthropicCompatible] GetRequestBody error: %v", err)
+			return nil, err
+		}
+		logger.Infof(c.Request.Context(), "[AnthropicCompatible] getRequestBody (cached): %s", string(bodyBytes))
+		return bytes.NewReader(bodyBytes), nil
 	}
 
 	// get request body
