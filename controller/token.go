@@ -2,6 +2,10 @@ package controller
 
 import (
 	"fmt"
+	"net/http"
+	"strconv"
+	"strings"
+
 	"github.com/gin-gonic/gin"
 	"github.com/songquanpeng/one-api/common/config"
 	"github.com/songquanpeng/one-api/common/ctxkey"
@@ -9,8 +13,6 @@ import (
 	"github.com/songquanpeng/one-api/common/network"
 	"github.com/songquanpeng/one-api/common/random"
 	"github.com/songquanpeng/one-api/model"
-	"net/http"
-	"strconv"
 )
 
 func GetAllTokens(c *gin.Context) {
@@ -117,6 +119,32 @@ func validateToken(c *gin.Context, token model.Token) error {
 			return fmt.Errorf("无效的网段：%s", err.Error())
 		}
 	}
+	// Validate channel ids
+	if token.ChannelIds != nil && *token.ChannelIds != "" {
+		userId := c.GetInt(ctxkey.Id)
+		userGroup, err := model.CacheGetUserGroup(userId)
+		if err == nil {
+			channelIds := token.GetChannelIds()
+			for _, id := range channelIds {
+				channel, err := model.GetChannelById(id, false)
+				if err != nil {
+					return fmt.Errorf("渠道 #%d 不存在", id)
+				}
+				// Check if channel is in user's group
+				groups := strings.Split(channel.Group, ",")
+				validGroup := false
+				for _, g := range groups {
+					if strings.TrimSpace(g) == userGroup {
+						validGroup = true
+						break
+					}
+				}
+				if !validGroup {
+					return fmt.Errorf("渠道 #%d 不在您的分组 %s 中", id, userGroup)
+				}
+			}
+		}
+	}
 	return nil
 }
 
@@ -150,6 +178,7 @@ func AddToken(c *gin.Context) {
 		UnlimitedQuota: token.UnlimitedQuota,
 		Models:         token.Models,
 		Subnet:         token.Subnet,
+		ChannelIds:     token.ChannelIds,
 	}
 	err = cleanToken.Insert()
 	if err != nil {
@@ -239,6 +268,7 @@ func UpdateToken(c *gin.Context) {
 		cleanToken.UnlimitedQuota = token.UnlimitedQuota
 		cleanToken.Models = token.Models
 		cleanToken.Subnet = token.Subnet
+		cleanToken.ChannelIds = token.ChannelIds
 	}
 	err = cleanToken.Update()
 	if err != nil {
@@ -254,4 +284,44 @@ func UpdateToken(c *gin.Context) {
 		"data":    cleanToken,
 	})
 	return
+}
+
+func GetUserAvailableChannels(c *gin.Context) {
+	userId := c.GetInt(ctxkey.Id)
+	userGroup, err := model.CacheGetUserGroup(userId)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"message": err.Error(),
+		})
+		return
+	}
+
+	channels, err := model.GetChannelsByGroup(userGroup)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"message": err.Error(),
+		})
+		return
+	}
+
+	// Return simplified channel info (without key)
+	channelList := make([]gin.H, 0, len(channels))
+	for _, ch := range channels {
+		channelList = append(channelList, gin.H{
+			"id":       ch.Id,
+			"name":     ch.Name,
+			"type":     ch.Type,
+			"status":   ch.Status,
+			"models":   ch.Models,
+			"priority": ch.GetPriority(),
+		})
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "",
+		"data":    channelList,
+	})
 }

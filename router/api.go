@@ -90,6 +90,7 @@ func SetApiRouter(router *gin.Engine) {
 			tokenRoute.GET("/", controller.GetAllTokens)
 			tokenRoute.GET("/search", controller.SearchTokens)
 			tokenRoute.GET("/:id", controller.GetToken)
+			tokenRoute.GET("/available_channels", controller.GetUserAvailableChannels)
 			tokenRoute.POST("/", controller.AddToken)
 			tokenRoute.PUT("/", controller.UpdateToken)
 			tokenRoute.DELETE("/:id", controller.DeleteToken)

@@ -3,6 +3,8 @@ package model
 import (
 	"errors"
 	"fmt"
+	"strconv"
+	"strings"
 
 	"gorm.io/gorm"
 
@@ -34,6 +36,7 @@ type Token struct {
 	UsedQuota      int64   `json:"used_quota" gorm:"bigint;default:0"` // used quota
 	Models         *string `json:"models" gorm:"type:text"`            // allowed models
 	Subnet         *string `json:"subnet" gorm:"default:''"`           // allowed subnet
+	ChannelIds     *string `json:"channel_ids" gorm:"type:text"`       // allowed channel ids
 }
 
 func GetAllUserTokens(userId int, startIdx int, num int, order string) ([]*Token, error) {
@@ -132,7 +135,7 @@ func (t *Token) Insert() error {
 // Update Make sure your token's fields is completed, because this will update non-zero values
 func (t *Token) Update() error {
 	var err error
-	err = DB.Model(t).Select("name", "status", "expired_time", "remain_quota", "unlimited_quota", "models", "subnet").Updates(t).Error
+	err = DB.Model(t).Select("name", "status", "expired_time", "remain_quota", "unlimited_quota", "models", "subnet", "channel_ids").Updates(t).Error
 	return err
 }
 
@@ -155,6 +158,24 @@ func (t *Token) GetModels() string {
 		return ""
 	}
 	return *t.Models
+}
+
+func (t *Token) GetChannelIds() []int {
+	if t == nil || t.ChannelIds == nil || *t.ChannelIds == "" {
+		return nil
+	}
+	ids := strings.Split(*t.ChannelIds, ",")
+	result := make([]int, 0, len(ids))
+	for _, id := range ids {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		if parsed, err := strconv.Atoi(id); err == nil {
+			result = append(result, parsed)
+		}
+	}
+	return result
 }
 
 func DeleteTokenById(id int, userId int) (err error) {

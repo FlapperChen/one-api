@@ -27,12 +27,14 @@ const EditToken = (props) => {
     expired_time: -1,
     unlimited_quota: false,
     model_limits_enabled: false,
-    model_limits: []
+    model_limits: [],
+    channel_ids: []
   };
   const [inputs, setInputs] = useState(originInputs);
-  const { name, remain_quota, expired_time, unlimited_quota, model_limits_enabled, model_limits } = inputs;
+  const { name, remain_quota, expired_time, unlimited_quota, model_limits_enabled, model_limits, channel_ids } = inputs;
   // const [visible, setVisible] = useState(false);
   const [models, setModels] = useState({});
+  const [availableChannels, setAvailableChannels] = useState([]);
   const navigate = useNavigate();
   const handleInputChange = (name, value) => {
     setInputs((inputs) => ({ ...inputs, [name]: value }));
@@ -81,16 +83,31 @@ const EditToken = (props) => {
       if (data.expired_time !== -1) {
         data.expired_time = timestamp2string(data.expired_time);
       }
-      // if (data.model_limits !== '') {
-      //   data.model_limits = data.model_limits.split(',');
-      // } else {
-      //   data.model_limits = [];
-      // }
+      // Parse channel_ids
+      if (!data.channel_ids || data.channel_ids === '') {
+        data.channel_ids = [];
+      } else {
+        data.channel_ids = data.channel_ids.split(',');
+      }
       setInputs(data);
     } else {
       showError(message);
     }
     setLoading(false);
+  };
+
+  const loadAvailableChannels = async () => {
+    let res = await API.get(`/api/token/available_channels`);
+    const { success, message, data } = res.data;
+    if (success) {
+      const options = data.map(ch => ({
+        value: ch.id.toString(),
+        label: `${ch.id} - ${ch.name}`
+      }));
+      setAvailableChannels(options);
+    } else {
+      showError(message);
+    }
   };
   useEffect(() => {
     setIsEdit(props.editingToken.id !== undefined);
@@ -107,6 +124,7 @@ const EditToken = (props) => {
       );
     }
     // loadModels();
+    loadAvailableChannels().then();
   }, [isEdit]);
 
   // 新增 state 变量 tokenCount 来记录用户想要创建的令牌数量，默认为 1
@@ -146,6 +164,10 @@ const EditToken = (props) => {
         }
         localInputs.expired_time = Math.ceil(time / 1000);
       }
+      // Convert channel_ids array to comma-separated string
+      if (localInputs.channel_ids && Array.isArray(localInputs.channel_ids)) {
+        localInputs.channel_ids = localInputs.channel_ids.join(',');
+      }
       // localInputs.model_limits = localInputs.model_limits.join(',');
       let res = await API.put(`/api/token/`, { ...localInputs, id: parseInt(props.editingToken.id) });
       const { success, message } = res.data;
@@ -175,6 +197,10 @@ const EditToken = (props) => {
             break;
           }
           localInputs.expired_time = Math.ceil(time / 1000);
+        }
+        // Convert channel_ids array to comma-separated string
+        if (localInputs.channel_ids && Array.isArray(localInputs.channel_ids)) {
+          localInputs.channel_ids = localInputs.channel_ids.join(',');
         }
         // localInputs.model_limits = localInputs.model_limits.join(',');
         let res = await API.post(`/api/token/`, localInputs);
@@ -314,6 +340,24 @@ const EditToken = (props) => {
               setUnlimitedQuota();
             }}>{unlimited_quota ? '取消无限额度' : '设为无限额度'}</Button>
           </div>
+
+          <Divider />
+          <div style={{ marginTop: 20 }}>
+            <Typography.Text>允许的渠道</Typography.Text>
+          </div>
+          <Select
+            style={{ marginTop: 8 }}
+            placeholder={'请选择允许使用的渠道，留空表示不限制渠道'}
+            name="channel_ids"
+            multiple
+            selection
+            onChange={value => {
+              handleInputChange('channel_ids', value);
+            }}
+            value={channel_ids || []}
+            optionList={availableChannels}
+          />
+
           {/* <Divider />
           <div style={{ marginTop: 10, display: 'flex' }}>
             <Space>

@@ -51,13 +51,15 @@ const originInputs = {
   expired_time: -1,
   unlimited_quota: false,
   subnet: '',
-  models: []
+  models: [],
+  channel_ids: []
 };
 
 const EditModal = ({ open, tokenId, onCancel, onOk }) => {
   const theme = useTheme();
   const [inputs, setInputs] = useState(originInputs);
   const [modelOptions, setModelOptions] = useState([]);
+  const [channelOptions, setChannelOptions] = useState([]);
 
   const submit = async (values, { setErrors, setStatus, setSubmitting }) => {
     setSubmitting(true);
@@ -65,10 +67,15 @@ const EditModal = ({ open, tokenId, onCancel, onOk }) => {
     values.remain_quota = parseInt(values.remain_quota);
     let res;
     let models = values.models.join(',');
+    // Convert channel_ids array to comma-separated string
+    let channel_ids = '';
+    if (values.channel_ids && values.channel_ids.length > 0) {
+      channel_ids = values.channel_ids.map(ch => typeof ch === 'object' ? ch.id : ch).join(',');
+    }
     if (values.is_edit) {
-      res = await API.put(`/api/token/`, { ...values, id: parseInt(tokenId), models: models });
+      res = await API.put(`/api/token/`, { ...values, id: parseInt(tokenId), models: models, channel_ids: channel_ids });
     } else {
-      res = await API.post(`/api/token/`, { ...values, models: models });
+      res = await API.post(`/api/token/`, { ...values, models: models, channel_ids: channel_ids });
     }
     const { success, message } = res.data;
     if (success) {
@@ -96,6 +103,17 @@ const EditModal = ({ open, tokenId, onCancel, onOk }) => {
       } else {
         data.models = data.models.split(',');
       }
+      // Parse channel_ids
+      if (!data.channel_ids || data.channel_ids === '') {
+        data.channel_ids = [];
+      } else {
+        const channelIdArray = data.channel_ids.split(',').map(id => {
+          const parsedId = parseInt(id.trim());
+          const channel = channelOptions.find(ch => ch.id === parsedId);
+          return channel || { id: parsedId, name: id.trim(), searchText: `${parsedId} - ${id.trim()}` };
+        });
+        data.channel_ids = channelIdArray;
+      }
       setInputs(data);
     } else {
       showError(message);
@@ -111,6 +129,21 @@ const EditModal = ({ open, tokenId, onCancel, onOk }) => {
     }
   };
 
+  const loadAvailableChannels = async () => {
+    let res = await API.get(`/api/token/available_channels`);
+    const { success, message, data } = res.data;
+    if (success) {
+      const options = data.map(ch => ({
+        id: ch.id,
+        name: ch.name,
+        searchText: `${ch.id} - ${ch.name} (${ch.models || '无模型'})`
+      }));
+      setChannelOptions(options);
+    } else {
+      showError(message);
+    }
+  };
+
   useEffect(() => {
     if (tokenId) {
       loadToken().then();
@@ -118,6 +151,7 @@ const EditModal = ({ open, tokenId, onCancel, onOk }) => {
       setInputs({ ...originInputs });
     }
     loadAvailableModels().then();
+    loadAvailableChannels().then();
   }, [tokenId]);
 
   return (
@@ -201,6 +235,50 @@ const EditModal = ({ open, tokenId, onCancel, onOk }) => {
                 ) : (
                   <FormHelperText id="helper-tex-channel-models-label">请选择允许使用的模型，留空则不进行限制</FormHelperText>
                 )}
+              </FormControl>
+              <FormControl fullWidth sx={{ ...theme.typography.otherInput }}>
+                <Autocomplete
+                  multiple
+                  freeSolo
+                  id="channel-ids-label"
+                  options={channelOptions}
+                  value={values.channel_ids || []}
+                  onChange={(e, value) => {
+                    const event = {
+                      target: {
+                        name: 'channel_ids',
+                        value: value
+                      }
+                    };
+                    handleChange(event);
+                  }}
+                  onBlur={handleBlur}
+                  disableCloseOnSelect
+                  renderInput={(params) => <TextField {...params} name="channel_ids" label="允许的渠道" />}
+                  filterOptions={(options, params) => {
+                    const filtered = filter(options, params);
+                    const { inputValue } = params;
+                    const isExisting = options.some((option) =>
+                      option.id.toString() === inputValue
+                    );
+                    if (inputValue !== '' && !isExisting) {
+                      filtered.push({
+                        id: parseInt(inputValue),
+                        name: inputValue,
+                        searchText: inputValue
+                      });
+                    }
+                    return filtered;
+                  }}
+                  getOptionLabel={(option) => option.searchText || `${option.id} - ${option.name}`}
+                  renderOption={(props, option, { selected }) => (
+                    <li {...props}>
+                      <Checkbox icon={icon} checkedIcon={checkedIcon} style={{ marginRight: 8 }} checked={selected} />
+                      {option.searchText || `${option.id} - ${option.name}`}
+                    </li>
+                  )}
+                />
+                <FormHelperText id="helper-tex-channel-ids-label">请选择允许使用的渠道，留空表示不限制渠道</FormHelperText>
               </FormControl>
               <FormControl fullWidth error={Boolean(touched.subnet && errors.subnet)} sx={{ ...theme.typography.otherInput }}>
                 <InputLabel htmlFor="channel-subnet-label">IP 限制</InputLabel>

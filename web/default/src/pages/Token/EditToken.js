@@ -25,6 +25,7 @@ const EditToken = () => {
   const isEdit = tokenId !== undefined;
   const [loading, setLoading] = useState(isEdit);
   const [modelOptions, setModelOptions] = useState([]);
+  const [channelOptions, setChannelOptions] = useState([]);
   const originInputs = {
     name: '',
     remain_quota: isEdit ? 0 : 500000,
@@ -32,6 +33,7 @@ const EditToken = () => {
     unlimited_quota: false,
     models: [],
     subnet: '',
+    channel_ids: []
   };
   const [inputs, setInputs] = useState(originInputs);
   const { name, remain_quota, expired_time, unlimited_quota } = inputs;
@@ -74,6 +76,12 @@ const EditToken = () => {
         } else {
           data.models = data.models.split(',');
         }
+        // Parse channel_ids
+        if (data.channel_ids === '' || !data.channel_ids) {
+          data.channel_ids = [];
+        } else {
+          data.channel_ids = data.channel_ids.split(',');
+        }
         setInputs(data);
       } else {
         showError(message || 'Failed to load token');
@@ -105,6 +113,27 @@ const EditToken = () => {
     }
   };
 
+  const loadAvailableChannels = async () => {
+    try {
+      let res = await API.get(`/api/token/available_channels`);
+      const { success, message, data } = res.data || {};
+      if (success && data) {
+        let options = data.map((ch) => {
+          return {
+            key: ch.id.toString(),
+            text: `${ch.id} - ${ch.name}`,
+            value: ch.id.toString(),
+          };
+        });
+        setChannelOptions(options);
+      } else {
+        showError(message || 'Failed to load channels');
+      }
+    } catch (error) {
+      showError(error.message || 'Network error');
+    }
+  };
+
   useEffect(() => {
     if (isEdit) {
       loadToken().catch((error) => {
@@ -114,6 +143,9 @@ const EditToken = () => {
     }
     loadAvailableModels().catch((error) => {
       showError(error.message || 'Failed to load models');
+    });
+    loadAvailableChannels().catch((error) => {
+      showError(error.message || 'Failed to load channels');
     });
   }, []);
 
@@ -130,6 +162,10 @@ const EditToken = () => {
       localInputs.expired_time = Math.ceil(time / 1000);
     }
     localInputs.models = localInputs.models.join(',');
+    // Convert channel_ids array to comma-separated string
+    if (localInputs.channel_ids && Array.isArray(localInputs.channel_ids)) {
+      localInputs.channel_ids = localInputs.channel_ids.join(',');
+    }
     let res;
     if (isEdit) {
       res = await API.put(`/api/token/`, {
@@ -187,6 +223,21 @@ const EditToken = () => {
                 value={inputs.models}
                 autoComplete='new-password'
                 options={modelOptions}
+              />
+            </Form.Field>
+            <Form.Field>
+              <Form.Dropdown
+                label={t('token.edit.channels') || '允许的渠道'}
+                placeholder={t('token.edit.channels_placeholder') || '请选择允许使用的渠道，留空表示不限制渠道'}
+                name='channel_ids'
+                fluid
+                multiple
+                search
+                selection
+                onChange={handleInputChange}
+                value={inputs.channel_ids}
+                autoComplete='new-password'
+                options={channelOptions}
               />
             </Form.Field>
             <Form.Field>

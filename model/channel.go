@@ -82,6 +82,18 @@ func GetChannelById(id int, selectAll bool) (*Channel, error) {
 	return &channel, err
 }
 
+func GetChannelsByGroup(group string) ([]*Channel, error) {
+	var channels []*Channel
+	// Query channels that have the specified group
+	// Group field can be comma-separated, so we check for exact match, prefix, suffix, or containing
+	err := DB.Omit("key").
+		Where("`group` = ? OR `group` LIKE ? OR `group` LIKE ? OR `group` LIKE ?",
+			group, group+",%", "%,"+group+",%", "%,"+group).
+		Where("status = ?", ChannelStatusEnabled).
+		Find(&channels).Error
+	return channels, err
+}
+
 func BatchInsertChannels(channels []Channel) error {
 	var err error
 	err = DB.Create(&channels).Error
