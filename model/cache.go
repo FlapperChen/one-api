@@ -253,3 +253,72 @@ func CacheGetRandomSatisfiedChannel(group string, model string, ignoreFirstPrior
 	}
 	return channels[idx], nil
 }
+
+// ChannelTypeFilter defines which channel types to consider for auto-selection
+type ChannelTypeFilter int
+
+const (
+	ChannelTypeFilterNone ChannelTypeFilter = iota
+	ChannelTypeFilterOpenAI
+	ChannelTypeFilterAnthropic
+)
+
+// IsChannelTypeMatch checks if a channel type matches the specified filter
+func IsChannelTypeMatch(channelType int, filter ChannelTypeFilter) bool {
+	switch filter {
+	case ChannelTypeFilterOpenAI:
+		// OpenAI, OpenAICompatible, Custom, and other pass-through types
+		// OpenAI = 1, Custom = 12, OpenAICompatible = 54, GeminiOpenAICompatible = 55
+		return channelType == 1 || channelType == 12 || channelType == 54 || channelType == 55
+	case ChannelTypeFilterAnthropic:
+		// AnthropicCompatible = 56
+		return channelType == 56
+	}
+	return true
+}
+
+// CacheGetRandomSatisfiedChannelByType selects a random channel that matches the specified type filter
+func CacheGetRandomSatisfiedChannelByType(group string, model string, ignoreFirstPriority bool, typeFilter ChannelTypeFilter) (*Channel, error) {
+	if !config.MemoryCacheEnabled {
+		return GetRandomSatisfiedChannelByType(group, model, ignoreFirstPriority, typeFilter)
+	}
+	channelSyncLock.RLock()
+	defer channelSyncLock.RUnlock()
+	channels := group2model2channels[group][model]
+	if len(channels) == 0 {
+		return nil, errors.New("channel not found")
+	}
+
+	// Filter by channel type if specified
+	if typeFilter != ChannelTypeFilterNone {
+		filteredChannels := make([]*Channel, 0, len(channels))
+		for _, ch := range channels {
+			if IsChannelTypeMatch(ch.Type, typeFilter) {
+				filteredChannels = append(filteredChannels, ch)
+			}
+		}
+		channels = filteredChannels
+		if len(channels) == 0 {
+			return nil, errors.New("no channel matches required type")
+		}
+	}
+
+	// Same priority-based selection logic as CacheGetRandomSatisfiedChannel
+	firstChannel := channels[0]
+	endIdx := len(channels)
+	if firstChannel.GetPriority() > 0 {
+		for i := range channels {
+			if channels[i].GetPriority() != firstChannel.GetPriority() {
+				endIdx = i
+				break
+			}
+		}
+	}
+	idx := rand.Intn(endIdx)
+	if ignoreFirstPriority {
+		if endIdx < len(channels) {
+			idx = random.RandRange(endIdx, len(channels))
+		}
+	}
+	return channels[idx], nil
+}

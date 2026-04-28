@@ -33,7 +33,10 @@
       "Bash(python3 migrate_mysql_pgloader.py --step 7 --incremental --auto)",
       "Bash(PGPASSWORD='NCbmc@123' psql -h localhost -U postgres -d oneapi -c \"\\\\d users\")",
       "Bash(PGPASSWORD='NCbmc@123' psql -h localhost -U postgres -d oneapi -c \"SELECT column_name FROM information_schema.columns WHERE table_name = 'users'\")",
-      "Bash(PGPASSWORD='NCbmc@123' psql -h localhost -U postgres -d oneapi -c \"SELECT 'users' as tbl, COUNT\\(*\\) FROM users UNION ALL SELECT 'tokens', COUNT\\(*\\) FROM tokens UNION ALL SELECT 'logs', COUNT\\(*\\) FROM logs\")"
+      "Bash(PGPASSWORD='NCbmc@123' psql -h localhost -U postgres -d oneapi -c \"SELECT 'users' as tbl, COUNT\\(*\\) FROM users UNION ALL SELECT 'tokens', COUNT\\(*\\) FROM tokens UNION ALL SELECT 'logs', COUNT\\(*\\) FROM logs\")",
+      "Bash(xargs ls *)",
+      "Bash(git -C /home/bmc/sd1/CODE/one-api log --oneline -20)",
+      "Bash(git -C /home/bmc/sd1/CODE/one-api show --stat HEAD~5..HEAD)"
     ]
   }
 }

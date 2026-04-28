@@ -50,6 +50,61 @@ func GetRandomSatisfiedChannel(group string, model string, ignoreFirstPriority b
 	return &channel, err
 }
 
+func GetRandomSatisfiedChannelByType(group string, model string, ignoreFirstPriority bool, typeFilter ChannelTypeFilter) (*Channel, error) {
+	ability := Ability{}
+	groupCol := "`group`"
+	trueVal := "1"
+	if common.UsingPostgreSQL {
+		groupCol = `"group"`
+		trueVal = "true"
+	}
+
+	var err error = nil
+	var channelQuery *gorm.DB
+
+	// Build channel type condition
+	channelTypeCondition := buildChannelTypeCondition(typeFilter)
+
+	if ignoreFirstPriority {
+		channelQuery = DB.Where(groupCol+" = ? and model = ? and enabled = "+trueVal, group, model)
+	} else {
+		maxPrioritySubQuery := DB.Model(&Ability{}).Select("MAX(priority)").Where(groupCol+" = ? and model = ? and enabled = "+trueVal, group, model)
+		channelQuery = DB.Where(groupCol+" = ? and model = ? and enabled = "+trueVal+" and priority = (?)", group, model, maxPrioritySubQuery)
+	}
+
+	if channelTypeCondition != "" {
+		// Subquery to get channel ids that match the type filter
+		channelIdsSubQuery := DB.Table("channels").Select("id").Where(channelTypeCondition)
+		channelQuery = channelQuery.Where("channel_id IN (?)", channelIdsSubQuery)
+	}
+
+	if common.UsingSQLite || common.UsingPostgreSQL {
+		err = channelQuery.Order("RANDOM()").First(&ability).Error
+	} else {
+		err = channelQuery.Order("RAND()").First(&ability).Error
+	}
+	if err != nil {
+		return nil, err
+	}
+	channel := Channel{}
+	channel.Id = ability.ChannelId
+	err = DB.First(&channel, "id = ?", ability.ChannelId).Error
+	return &channel, err
+}
+
+// buildChannelTypeCondition returns a SQL condition for filtering by channel type
+func buildChannelTypeCondition(typeFilter ChannelTypeFilter) string {
+	switch typeFilter {
+	case ChannelTypeFilterOpenAI:
+		// OpenAI = 1, Custom = 12, OpenAICompatible = 54, GeminiOpenAICompatible = 55
+		return "type IN (1, 12, 54, 55)"
+	case ChannelTypeFilterAnthropic:
+		// AnthropicCompatible = 56
+		return "type = 56"
+	}
+	return ""
+}
+
 func (channel *Channel) AddAbilities() error {
 	models_ := strings.Split(channel.Models, ",")
 	models_ = utils.DeDuplication(models_)
