@@ -93,14 +93,23 @@ func GetRandomSatisfiedChannelByType(group string, model string, ignoreFirstPrio
 }
 
 // buildChannelTypeCondition returns a SQL condition for filtering by channel type
+// Channel types reference (relay/channeltype/define.go):
+//   Unknown=0, OpenAI=1, API2D=2, Azure=3, CloseAI=4, OpenAISB=5, OpenAIMax=6, OhMyGPT=7,
+//   Custom=8, Ails=9, AIProxy=10, PaLM=11, API2GPT=12, AIGC2D=13, Anthropic=14, Baidu=15,
+//   Zhipu=16, Ali=17, Xunfei=18, AI360=19, OpenRouter=20, AIProxyLibrary=21, FastGPT=22,
+//   Tencent=23, Gemini=24, Moonshot=25, Baichuan=26, Minimax=27, Mistral=28, Groq=29,
+//   Ollama=30, LingYiWanWu=31, StepFun=32, AwsClaude=33, Coze=34, Cohere=35, DeepSeek=36,
+//   Cloudflare=37, DeepL=38, TogetherAI=39, Doubao=40, Novita=41, VertextAI=42, Proxy=43,
+//   SiliconFlow=44, XAI=45, Replicate=46, BaiduV2=47, XunfeiV2=48, AliBailian=49,
+//   OpenAICompatible=50, GeminiOpenAICompatible=51, AnthropicCompatible=52, Dummy=53
 func buildChannelTypeCondition(typeFilter ChannelTypeFilter) string {
 	switch typeFilter {
 	case ChannelTypeFilterOpenAI:
-		// OpenAI = 1, Custom = 12, OpenAICompatible = 54, GeminiOpenAICompatible = 55
-		return "type IN (1, 12, 54, 55)"
+		// OpenAICompatible=50
+		return "type = 50"
 	case ChannelTypeFilterAnthropic:
-		// AnthropicCompatible = 56
-		return "type = 56"
+		// AnthropicCompatible=52
+		return "type = 52"
 	}
 	return ""
 }

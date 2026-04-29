@@ -44,7 +44,8 @@
       "Bash(sudo netstat *)",
       "Bash(curl -s http://localhost:3009/ -o /dev/null -w \"HTTP Status: %{http_code}\\\\n\")",
       "Bash(curl -s http://127.0.0.1:3009/ -o /dev/null -w \"HTTP Status: %{http_code}\\\\n\")",
-      "Bash(chmod u+x one-api)"
+      "Bash(chmod u+x one-api)",
+      "Bash(PGPASSWORD='NCbmc@123' psql -h localhost -U postgres -d oneapi -c \"SELECT id, name, type, models, priority, status FROM channels WHERE status = 1 ORDER BY type, id;\")"
     ]
   }
 }
