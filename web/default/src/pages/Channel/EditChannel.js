@@ -144,7 +144,7 @@ const EditChannel = () => {
 
   useEffect(() => {
     let localModelOptions = [...originModelOptions];
-    inputs.models.forEach((model) => {
+    (inputs.models || []).forEach((model) => {
       if (!localModelOptions.find((option) => option.key === model)) {
         localModelOptions.push({
           key: model,

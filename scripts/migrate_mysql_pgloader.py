@@ -947,6 +947,10 @@ def step7_migrate_data(args, skip_backup=False):
         except Exception as e:
             log_error(f"  迁移失败: {e}")
 
+    # 同步 PostgreSQL 序列
+    print("\n[最后] 同步 PostgreSQL 序列...")
+    sync_postgres_sequences(args)
+
     print("\n" + "=" * 60)
     log_success(f"迁移完成! 共迁移 {total} 条记录")
     print("=" * 60)
@@ -989,11 +993,60 @@ def step7_incremental_sync(args, skip_backup=False):
     mysql_conn.close()
     pg_conn.close()
 
+    # 同步 PostgreSQL 序列
+    print("\n[最后] 同步 PostgreSQL 序列...")
+    sync_postgres_sequences(args)
+
     print("\n" + "=" * 60)
     log_success(f"增量同步完成!")
     print("=" * 60)
 
     return True
+
+
+def sync_postgres_sequences(args):
+    """同步 PostgreSQL 序列值到各表的最大 ID，避免序列不同步导致插入失败"""
+    print("\n[同步序列]")
+    pg_conn = get_pg_connection(args)
+    pg_cursor = pg_conn.cursor()
+
+    # 需要同步序列的表及其序列名
+    tables_with_sequences = [
+        ('logs', 'logs_id_seq'),
+        ('users', 'users_id_seq'),
+        ('channels', 'channels_id_seq'),
+        ('tokens', 'tokens_id_seq'),
+        ('redemptions', 'redemptions_id_seq'),
+        ('options', 'options_id_seq'),
+        ('abilities', 'abilities_id_seq'),
+    ]
+
+    for table_name, seq_name in tables_with_sequences:
+        try:
+            # 获取表的最大 ID
+            pg_cursor.execute(f'SELECT MAX(id) FROM {table_name}')
+            max_id = pg_cursor.fetchone()[0]
+
+            if max_id is not None:
+                # 获取序列当前值
+                pg_cursor.execute(f'SELECT last_value FROM {seq_name}')
+                current_val = pg_cursor.fetchone()[0]
+
+                # 如果最大 ID 大于序列当前值，更新序列
+                if max_id > current_val:
+                    pg_cursor.execute(f"SELECT setval('{seq_name}', (SELECT MAX(id) FROM {table_name}))")
+                    pg_conn.commit()
+                    log_success(f"  {table_name}: 序列 {seq_name} 从 {current_val} 更新到 {max_id}")
+                else:
+                    log_info(f"  {table_name}: 序列已同步 (当前值: {current_val}, 最大ID: {max_id})")
+            else:
+                log_info(f"  {table_name}: 表为空，跳过")
+        except Exception as e:
+            log_warn(f"  {table_name}: 同步失败 - {e}")
+
+    pg_cursor.close()
+    pg_conn.close()
+    log_success("序列同步完成!")
 
 
 def sync_users_incremental(mysql_conn, pg_conn):

@@ -36,7 +36,15 @@
       "Bash(PGPASSWORD='NCbmc@123' psql -h localhost -U postgres -d oneapi -c \"SELECT 'users' as tbl, COUNT\\(*\\) FROM users UNION ALL SELECT 'tokens', COUNT\\(*\\) FROM tokens UNION ALL SELECT 'logs', COUNT\\(*\\) FROM logs\")",
       "Bash(xargs ls *)",
       "Bash(git -C /home/bmc/sd1/CODE/one-api log --oneline -20)",
-      "Bash(git -C /home/bmc/sd1/CODE/one-api show --stat HEAD~5..HEAD)"
+      "Bash(git -C /home/bmc/sd1/CODE/one-api show --stat HEAD~5..HEAD)",
+      "Bash(chmod u+x /home/bmc/sd1/CODE/one-api/one-api)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:3009/)",
+      "Bash(curl -v http://localhost:3009/)",
+      "Bash(sudo ss *)",
+      "Bash(sudo netstat *)",
+      "Bash(curl -s http://localhost:3009/ -o /dev/null -w \"HTTP Status: %{http_code}\\\\n\")",
+      "Bash(curl -s http://127.0.0.1:3009/ -o /dev/null -w \"HTTP Status: %{http_code}\\\\n\")",
+      "Bash(chmod u+x one-api)"
     ]
   }
 }

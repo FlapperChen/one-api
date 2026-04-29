@@ -225,6 +225,11 @@ docker-compose ps
 
 更加详细的部署教程[参见此处](https://iamazing.cn/page/how-to-deploy-a-website)。
 
+### 测试流程
+1、cd /home/bmc/sd1/CODE/one-api/web/default && npm install && npm run build 2>&1 | tail -5
+2、cd /home/bmc/sd1/CODE/one-api && go mod download && go build -ldflags "-s -w" -o one-api
+3、fuser -k 3009/tcp 2>/dev/null; sleep 1 && chmod u+x one-api && SQL_DSN="postgres://postgres:NCbmc%40123@localhost:5432/oneapi?sslmode=disable" ./one-api --port 3009 --log-dir ./logs
+
 ### 多机部署
 1. 所有服务器 `SESSION_SECRET` 设置一样的值。
 2. 必须设置 `SQL_DSN`，使用 MySQL 数据库而非 SQLite，所有服务器连接同一个数据库。

@@ -195,6 +195,8 @@
       "name_placeholder": "Please enter name",
       "models": "Model Scope",
       "models_placeholder": "Please select allowed models, leave empty for no restrictions",
+      "channels": "Allowed Channels",
+      "channels_placeholder": "Please select allowed channels, leave empty for no restrictions",
       "ip_limit": "IP Restriction",
       "ip_limit_placeholder": "Please enter allowed subnets, e.g.: 192.168.0.0/24, use commas to separate multiple subnets",
       "expire_time": "Expiry Time",
@@ -202,6 +204,8 @@
       "quota_notice": "Note: Token quota only limits the maximum usage of the token itself, actual usage is subject to account remaining quota.",
       "quota": "Quota",
       "quota_placeholder": "Please enter quota",
+      "auto_channel_select": "Enable Auto Channel Selection",
+      "auto_channel_select_hint": "When enabled, channels will be automatically selected based on request format (e.g., /v1/messages routes to AnthropicCompatible, /v1/chat/completions routes to OpenAI)",
       "buttons": {
         "never_expire": "Never Expire",
         "expire_1_month": "Expire in 1 Month",

@@ -139,6 +139,11 @@ func TokenAuth() func(c *gin.Context) {
 			c.Set(ctxkey.TokenChannelIds, channelIds)
 		}
 
+		// Set token's auto channel select setting
+		if token.IsAutoChannelSelectEnabled() {
+			c.Set(ctxkey.TokenAutoChannelSelect, true)
+		}
+
 		if len(parts) > 1 {
 			if model.IsAdmin(token.UserId) {
 				c.Set(ctxkey.SpecificChannelId, parts[1])

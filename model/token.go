@@ -23,20 +23,21 @@ const (
 )
 
 type Token struct {
-	Id             int     `json:"id"`
-	UserId         int     `json:"user_id"`
-	Key            string  `json:"key" gorm:"type:char(48);uniqueIndex"`
-	Status         int     `json:"status" gorm:"default:1"`
-	Name           string  `json:"name" gorm:"index" `
-	CreatedTime    int64   `json:"created_time" gorm:"bigint"`
-	AccessedTime   int64   `json:"accessed_time" gorm:"bigint"`
-	ExpiredTime    int64   `json:"expired_time" gorm:"bigint;default:-1"` // -1 means never expired
-	RemainQuota    int64   `json:"remain_quota" gorm:"bigint;default:0"`
-	UnlimitedQuota bool    `json:"unlimited_quota" gorm:"default:false"`
-	UsedQuota      int64   `json:"used_quota" gorm:"bigint;default:0"` // used quota
-	Models         *string `json:"models" gorm:"type:text"`            // allowed models
-	Subnet         *string `json:"subnet" gorm:"default:''"`           // allowed subnet
-	ChannelIds     *string `json:"channel_ids" gorm:"type:text"`       // allowed channel ids
+	Id               int     `json:"id"`
+	UserId           int     `json:"user_id"`
+	Key              string  `json:"key" gorm:"type:char(48);uniqueIndex"`
+	Status           int     `json:"status" gorm:"default:1"`
+	Name             string  `json:"name" gorm:"index" `
+	CreatedTime      int64   `json:"created_time" gorm:"bigint"`
+	AccessedTime     int64   `json:"accessed_time" gorm:"bigint"`
+	ExpiredTime      int64   `json:"expired_time" gorm:"bigint;default:-1"` // -1 means never expired
+	RemainQuota      int64   `json:"remain_quota" gorm:"bigint;default:0"`
+	UnlimitedQuota   bool    `json:"unlimited_quota" gorm:"default:false"`
+	UsedQuota        int64   `json:"used_quota" gorm:"bigint;default:0"` // used quota
+	Models           *string `json:"models" gorm:"type:text"`            // allowed models
+	Subnet           *string `json:"subnet" gorm:"default:''"`           // allowed subnet
+	ChannelIds       *string `json:"channel_ids" gorm:"type:text"`       // allowed channel ids
+	AutoChannelSelect *bool  `json:"auto_channel_select" gorm:"default:false"` // 自动渠道选择
 }
 
 func GetAllUserTokens(userId int, startIdx int, num int, order string) ([]*Token, error) {
@@ -135,7 +136,7 @@ func (t *Token) Insert() error {
 // Update Make sure your token's fields is completed, because this will update non-zero values
 func (t *Token) Update() error {
 	var err error
-	err = DB.Model(t).Select("name", "status", "expired_time", "remain_quota", "unlimited_quota", "models", "subnet", "channel_ids").Updates(t).Error
+	err = DB.Model(t).Select("name", "status", "expired_time", "remain_quota", "unlimited_quota", "models", "subnet", "channel_ids", "auto_channel_select").Updates(t).Error
 	return err
 }
 
@@ -176,6 +177,16 @@ func (t *Token) GetChannelIds() []int {
 		}
 	}
 	return result
+}
+
+func (t *Token) IsAutoChannelSelectEnabled() bool {
+	if t == nil {
+		return false
+	}
+	if t.AutoChannelSelect == nil {
+		return false
+	}
+	return *t.AutoChannelSelect
 }
 
 func DeleteTokenById(id int, userId int) (err error) {

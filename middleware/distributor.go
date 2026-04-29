@@ -11,7 +11,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/songquanpeng/one-api/common/config"
 	"github.com/songquanpeng/one-api/common/ctxkey"
 	"github.com/songquanpeng/one-api/common/logger"
 	"github.com/songquanpeng/one-api/model"
@@ -32,12 +31,12 @@ func Distribute() func(c *gin.Context) {
 		var channel *model.Channel
 		var err error
 
-		// Detect request format for auto-selection
+		// Detect request format for auto-selection (only if token enables it)
 		var typeFilter model.ChannelTypeFilter = model.ChannelTypeFilterNone
-		if config.AutoChannelSelectionEnabled {
+		if _, autoSelectEnabled := c.Get(ctxkey.TokenAutoChannelSelect); autoSelectEnabled {
 			typeFilter = detectChannelTypeFromPath(c.Request.URL.Path)
 			if typeFilter != model.ChannelTypeFilterNone {
-				logger.Debugf(ctx, "Auto-selection enabled, detected format type: %d", typeFilter)
+				logger.Debugf(ctx, "自动渠道选择已启用，检测到请求格式类型: %d", typeFilter)
 			}
 		}
 

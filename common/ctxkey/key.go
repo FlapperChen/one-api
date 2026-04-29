@@ -22,4 +22,5 @@ const (
 	KeyRequestBody    = "key_request_body"
 	SystemPrompt      = "system_prompt"
 	TokenChannelIds   = "token_channel_ids"
+	TokenAutoChannelSelect = "token_auto_channel_select"
 )

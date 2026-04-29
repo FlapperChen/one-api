@@ -210,6 +210,19 @@ sudo systemctl status postgresql
 docker ps | grep mysql
 ```
 
+### 问题: 迁移后消费记录无法保存 (duplicate key error)
+
+PostgreSQL 序列不同步导致。迁移脚本会自动同步序列，但如果手动导入数据后仍有问题，可手动修复：
+
+```bash
+PGPASSWORD='NCbmc@123' psql -h localhost -U postgres -d oneapi -c "
+SELECT setval('logs_id_seq', (SELECT MAX(id) FROM logs));
+SELECT setval('users_id_seq', (SELECT MAX(id) FROM users));
+SELECT setval('channels_id_seq', (SELECT MAX(id) FROM channels));
+SELECT setval('tokens_id_seq', (SELECT MAX(id) FROM tokens));
+"
+```
+
 ## 迁移结果示例
 
 ```

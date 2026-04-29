@@ -87,7 +87,7 @@ func GetChannelsByGroup(group string) ([]*Channel, error) {
 	// Query channels that have the specified group
 	// Group field can be comma-separated, so we check for exact match, prefix, suffix, or containing
 	err := DB.Omit("key").
-		Where("`group` = ? OR `group` LIKE ? OR `group` LIKE ? OR `group` LIKE ?",
+		Where("\"group\" = ? OR \"group\" LIKE ? OR \"group\" LIKE ? OR \"group\" LIKE ?",
 			group, group+",%", "%,"+group+",%", "%,"+group).
 		Where("status = ?", ChannelStatusEnabled).
 		Find(&channels).Error

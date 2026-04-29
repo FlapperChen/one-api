@@ -33,7 +33,8 @@ const EditToken = () => {
     unlimited_quota: false,
     models: [],
     subnet: '',
-    channel_ids: []
+    channel_ids: [],
+    auto_channel_select: false
   };
   const [inputs, setInputs] = useState(originInputs);
   const { name, remain_quota, expired_time, unlimited_quota } = inputs;
@@ -82,6 +83,8 @@ const EditToken = () => {
         } else {
           data.channel_ids = data.channel_ids.split(',');
         }
+        // Ensure auto_channel_select is boolean
+        data.auto_channel_select = data.auto_channel_select === true;
         setInputs(data);
       } else {
         showError(message || 'Failed to load token');
@@ -239,6 +242,19 @@ const EditToken = () => {
                 autoComplete='new-password'
                 options={channelOptions}
               />
+            </Form.Field>
+            <Form.Field>
+              <Form.Checkbox
+                label={t('token.edit.auto_channel_select') || '启用自动渠道选择'}
+                name='auto_channel_select'
+                checked={inputs.auto_channel_select}
+                onChange={(e, { checked }) => {
+                  setInputs({ ...inputs, auto_channel_select: checked });
+                }}
+              />
+              <div style={{ color: '#999', fontSize: '12px', marginTop: '5px', marginLeft: '24px' }}>
+                {t('token.edit.auto_channel_select_hint') || '启用后，将根据请求格式自动选择对应类型的渠道（如 /v1/messages 选择 AnthropicCompatible 渠道，/v1/chat/completions 选择 OpenAI 渠道）'}
+              </div>
             </Form.Field>
             <Form.Field>
               <Form.Input

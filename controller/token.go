@@ -168,17 +168,18 @@ func AddToken(c *gin.Context) {
 	}
 
 	cleanToken := model.Token{
-		UserId:         c.GetInt(ctxkey.Id),
-		Name:           token.Name,
-		Key:            random.GenerateKey(),
-		CreatedTime:    helper.GetTimestamp(),
-		AccessedTime:   helper.GetTimestamp(),
-		ExpiredTime:    token.ExpiredTime,
-		RemainQuota:    token.RemainQuota,
-		UnlimitedQuota: token.UnlimitedQuota,
-		Models:         token.Models,
-		Subnet:         token.Subnet,
-		ChannelIds:     token.ChannelIds,
+		UserId:             c.GetInt(ctxkey.Id),
+		Name:               token.Name,
+		Key:                random.GenerateKey(),
+		CreatedTime:        helper.GetTimestamp(),
+		AccessedTime:       helper.GetTimestamp(),
+		ExpiredTime:        token.ExpiredTime,
+		RemainQuota:        token.RemainQuota,
+		UnlimitedQuota:     token.UnlimitedQuota,
+		Models:             token.Models,
+		Subnet:             token.Subnet,
+		ChannelIds:         token.ChannelIds,
+		AutoChannelSelect:  token.AutoChannelSelect,
 	}
 	err = cleanToken.Insert()
 	if err != nil {
@@ -269,6 +270,7 @@ func UpdateToken(c *gin.Context) {
 		cleanToken.Models = token.Models
 		cleanToken.Subnet = token.Subnet
 		cleanToken.ChannelIds = token.ChannelIds
+		cleanToken.AutoChannelSelect = token.AutoChannelSelect
 	}
 	err = cleanToken.Update()
 	if err != nil {

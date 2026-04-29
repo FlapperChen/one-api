@@ -195,6 +195,8 @@
       "name_placeholder": "请输入名称",
       "models": "模型范围",
       "models_placeholder": "请选择允许使用的模型，留空则不进行限制",
+      "channels": "允许的渠道",
+      "channels_placeholder": "请选择允许使用的渠道，留空表示不限制渠道",
       "ip_limit": "IP 限制",
       "ip_limit_placeholder": "请输入允许访问的网段，例如：192.168.0.0/24，请使用英文逗号分隔多个网段",
       "expire_time": "过期时间",
@@ -202,6 +204,8 @@
       "quota_notice": "注意，令牌的额度仅用于限制令牌本身的最大额度使用量，实际的使用受到账户的剩余额度限制。",
       "quota": "额度",
       "quota_placeholder": "请输入额度",
+      "auto_channel_select": "启用自动渠道选择",
+      "auto_channel_select_hint": "启用后，将根据请求格式自动选择对应类型的渠道（如 /v1/messages 选择 AnthropicCompatible 渠道，/v1/chat/completions 选择 OpenAI 渠道）",
       "buttons": {
         "never_expire": "永不过期",
         "expire_1_month": "一个月后过期",
