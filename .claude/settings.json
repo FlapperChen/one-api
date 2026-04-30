@@ -45,7 +45,35 @@
       "Bash(curl -s http://localhost:3009/ -o /dev/null -w \"HTTP Status: %{http_code}\\\\n\")",
       "Bash(curl -s http://127.0.0.1:3009/ -o /dev/null -w \"HTTP Status: %{http_code}\\\\n\")",
       "Bash(chmod u+x one-api)",
-      "Bash(PGPASSWORD='NCbmc@123' psql -h localhost -U postgres -d oneapi -c \"SELECT id, name, type, models, priority, status FROM channels WHERE status = 1 ORDER BY type, id;\")"
+      "Bash(PGPASSWORD='NCbmc@123' psql -h localhost -U postgres -d oneapi -c \"SELECT id, name, type, models, priority, status FROM channels WHERE status = 1 ORDER BY type, id;\")",
+      "Bash(PGPASSWORD='NCbmc@123' psql -h localhost -U postgres -d oneapi -c \"SELECT * FROM model_ratios LIMIT 5;\")",
+      "Bash(PGPASSWORD='NCbmc%40123' psql -h localhost -U postgres -d oneapi -c \"SELECT * FROM model_ratios LIMIT 5;\")",
+      "Bash(PGPASSWORD='NCbmc%40123' psql -h localhost -U postgres -d oneapi -c \"SELECT key, value FROM options WHERE key = 'AutoChannelSelectModels';\")",
+      "Bash(PGPASSWORD='NCbmc%40123' psql -h localhost -U postgres -d oneapi -c \"SELECT id, name, type, models, status FROM channels;\")",
+      "Bash(psql \"postgres://postgres:NCbmc%40123@localhost:5432/oneapi?sslmode=disable\" -c \"SELECT id, name, type, models, status, group_field FROM channels;\")",
+      "Bash(./redeploy.sh)",
+      "Bash(PGPASSWORD='NCbmc@123' psql -h localhost -U postgres -d oneapi -c \"SELECT last_value FROM tokens_id_seq;\")",
+      "Bash(PGPASSWORD='NCbmc@123' psql -h localhost -U postgres -d oneapi -c \"SELECT MAX\\(id\\) FROM tokens;\")",
+      "Bash(PGPASSWORD='NCbmc@123' psql -h localhost -U postgres -d oneapi -c \"SELECT setval\\('tokens_id_seq', \\(SELECT MAX\\(id\\) FROM tokens\\)\\);\")",
+      "Bash(env)",
+      "Bash(curl -v --connect-timeout 5 http://10.41.101.220:8000/v1/models)",
+      "Bash(curl -v --connect-timeout 5 http://10.31.3.5:10809)",
+      "Bash(PGPASSWORD='NCbmc@123' psql -h localhost -U postgres -d oneapi -c \"SELECT id, name, type, key, base_url FROM channels WHERE name LIKE '%openai%' OR type = 50 LIMIT 5;\")",
+      "Bash(PGPASSWORD='NCbmc@123' psql -h localhost -U postgres -d oneapi -c \"SELECT id, name, config FROM channels WHERE id = 5;\")",
+      "Bash(PGPASSWORD='NCbmc@123' psql -h localhost -U postgres -d oneapi -c \"SELECT key, value FROM options WHERE key = 'RelayProxy';\")",
+      "Bash(PGPASSWORD='NCbmc@123' psql -h localhost -U postgres -d oneapi -c \"SELECT id, name, type, key, base_url, other FROM channels;\")",
+      "Bash(PGPASSWORD='NCbmc@123' psql -h localhost -U postgres -d oneapi -c \"SELECT key, value FROM options WHERE key LIKE '%Proxy%' OR key LIKE '%proxy%';\")",
+      "Bash(PGPASSWORD='NCbmc@123' psql -h localhost -U postgres -d oneapi -c \"SELECT key, value FROM options WHERE value LIKE '%10.31%' OR value LIKE '%proxy%';\")",
+      "Read(//tmp/**)",
+      "Read(//home/bmc/**)",
+      "Read(//home/bmc/.config/**)",
+      "Read(//etc/**)",
+      "Bash(curl -v --noproxy '*' --connect-timeout 5 http://10.41.101.220:8000/v1/models)",
+      "Bash(curl -s --noproxy '*' -X POST http://localhost:3009/v1/chat/completions -H 'Content-Type: application/json' -H 'Authorization: Bearer test-test' -d '{\"model\":\"/models/coder/minimax/MiniMax-M2\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"max_tokens\":10}')",
+      "Bash(PGPASSWORD='NCbmc@123' psql -h localhost -U postgres -d oneapi -c \"SELECT id, key FROM tokens LIMIT 1;\")"
+    ],
+    "additionalDirectories": [
+      "/tmp"
     ]
   }
 }

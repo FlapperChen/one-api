@@ -1440,6 +1440,10 @@ def step8_verify(args):
     except Exception as e:
         log_warn(f"API 测试失败: {e}")
 
+    # 5. 同步 PostgreSQL 序列
+    print("\n[5] 同步 PostgreSQL 序列...")
+    sync_postgres_sequences(args)
+
     # 总结
     print("\n" + "=" * 60)
     if success:

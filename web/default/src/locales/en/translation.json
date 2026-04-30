@@ -640,6 +640,20 @@
           "save": "Save Ratio Settings"
         }
       },
+      "auto_channel_select": {
+        "title": "Auto Channel Select Models",
+        "group": "Select Group",
+        "select_group": "Select user group",
+        "model": "Select Model",
+        "select_model": "Select models for auto channel select",
+        "add": "Add",
+        "current_config": "Configured Models",
+        "empty": "No configuration yet, click Add above",
+        "placeholder": "Supports prefix wildcard like \"claude-\", empty groups means all groups",
+        "buttons": {
+          "save": "Save Settings"
+        }
+      },
       "log": {
         "title": "Log Settings",
         "enable_consume": "Enable Quota Consumption Logging",

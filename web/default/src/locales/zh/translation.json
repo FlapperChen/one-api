@@ -638,6 +638,20 @@
           "save": "保存倍率设置"
         }
       },
+      "auto_channel_select": {
+        "title": "自动渠道选择模型",
+        "group": "选择分组",
+        "select_group": "选择用户分组",
+        "model": "选择模型",
+        "select_model": "选择需要自动渠道选择的模型",
+        "add": "添加",
+        "current_config": "已配置模型",
+        "empty": "暂无配置，点击上方添加",
+        "placeholder": "支持前缀通配符如 \"claude-\"，groups 为空表示所有分组",
+        "buttons": {
+          "save": "保存设置"
+        }
+      },
       "log": {
         "title": "日志设置",
         "enable_consume": "启用额度消费日志记录",

@@ -292,9 +292,10 @@ func CacheGetRandomSatisfiedChannelByType(group string, model string, ignoreFirs
 	}
 	channelSyncLock.RLock()
 	defer channelSyncLock.RUnlock()
+
 	channels := group2model2channels[group][model]
 	if len(channels) == 0 {
-		return nil, errors.New("channel not found")
+		return nil, fmt.Errorf("当前分组 %s 下对于模型 %s 无可用渠道", group, model)
 	}
 
 	// Filter by channel type if specified
@@ -307,7 +308,11 @@ func CacheGetRandomSatisfiedChannelByType(group string, model string, ignoreFirs
 		}
 		channels = filteredChannels
 		if len(channels) == 0 {
-			return nil, errors.New("no channel matches required type")
+			filterName := "OpenAI"
+			if typeFilter == ChannelTypeFilterAnthropic {
+				filterName = "Anthropic"
+			}
+			return nil, fmt.Errorf("当前分组 %s 下对于模型 %s 没有配置支持 %s 格式的渠道", group, model, filterName)
 		}
 	}
 

@@ -1,10 +1,12 @@
 package middleware
 
 import (
+	"encoding/json"
 	"fmt"
 	"github.com/gin-contrib/sessions"
 	"github.com/gin-gonic/gin"
 	"github.com/songquanpeng/one-api/common/blacklist"
+	"github.com/songquanpeng/one-api/common/config"
 	"github.com/songquanpeng/one-api/common/ctxkey"
 	"github.com/songquanpeng/one-api/common/network"
 	"github.com/songquanpeng/one-api/model"
@@ -144,6 +146,13 @@ func TokenAuth() func(c *gin.Context) {
 			c.Set(ctxkey.TokenAutoChannelSelect, true)
 		}
 
+		// Check if this model+group combination requires auto channel select
+		if _, exists := c.Get(ctxkey.TokenAutoChannelSelect); !exists {
+			if shouldAutoEnableChannelSelect(requestModel, token.UserId) {
+				c.Set(ctxkey.TokenAutoChannelSelect, true)
+			}
+		}
+
 		if len(parts) > 1 {
 			if model.IsAdmin(token.UserId) {
 				c.Set(ctxkey.SpecificChannelId, parts[1])
@@ -174,6 +183,48 @@ func shouldCheckModel(c *gin.Context) bool {
 	}
 	if strings.HasPrefix(c.Request.URL.Path, "/v1/audio") {
 		return true
+	}
+	return false
+}
+
+// shouldAutoEnableChannelSelect checks if auto channel select should be enabled
+// based on the AutoChannelSelectModels configuration (group + model match)
+func shouldAutoEnableChannelSelect(modelName string, userId int) bool {
+	if modelName == "" {
+		return false
+	}
+
+	config.OptionMapRWMutex.RLock()
+	configValue := config.OptionMap["AutoChannelSelectModels"]
+	config.OptionMapRWMutex.RUnlock()
+
+	if configValue == "" || configValue == "[]" {
+		return false
+	}
+
+	var config []struct {
+		Model  string   `json:"model"`
+		Groups []string `json:"groups"`
+	}
+	if err := json.Unmarshal([]byte(configValue), &config); err != nil {
+		return false
+	}
+
+	// Get user's group
+	userGroup, err := model.CacheGetUserGroup(userId)
+	if err != nil {
+		return false
+	}
+
+	// Check if model+group combination exists in config
+	for _, item := range config {
+		if item.Model == modelName {
+			for _, group := range item.Groups {
+				if group == userGroup {
+					return true
+				}
+			}
+		}
 	}
 	return false
 }

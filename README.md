@@ -230,6 +230,41 @@ docker-compose ps
 2、cd /home/bmc/sd1/CODE/one-api && go mod download && go build -ldflags "-s -w" -o one-api
 3、fuser -k 3009/tcp 2>/dev/null; sleep 1 && chmod u+x one-api && SQL_DSN="postgres://postgres:NCbmc%40123@localhost:5432/oneapi?sslmode=disable" ./one-api --port 3009 --log-dir ./logs
 
+### 数据库访问方法
+python3 -c "
+import psycopg2
+conn = psycopg2.connect('host=localhost dbname=oneapi user=postgres password=NCbmc@123')
+cur = conn.cursor()
+
+# 模拟 buildChannelTypeCondition 的查询逻辑
+# SELECT a.* FROM abilities a WHERE a.group = 'default' AND a.model = '/models/coder/minimax/MiniMax-M2' AND a.enabled = true AND a.channel_id IN (SELECT id FROM channels WHERE type = 50)
+
+cur.execute('''SELECT a.channel_id, a.group, a.model, a.priority, a.enabled, c.type 
+FROM abilities a 
+JOIN channels c ON a.channel_id = c.id 
+WHERE a.group = 'default' 
+  AND a.model = '/models/coder/minimax/MiniMax-M2' 
+  AND a.enabled = true 
+  AND c.type = 50
+ORDER BY a.priority DESC
+LIMIT 1''')
+
+print('查询 OpenAICompatible 渠道 (type=50):')
+result = cur.fetchone()
+if result:
+    print('找到:', result)
+else:
+    print('未找到')
+
+# 检查 type 字段的值
+cur.execute('SELECT id, name, type FROM channels WHERE type = 50')
+print('\\ntype=50 的渠道:')
+for row in cur.fetchall():
+    print(row)
+
+conn.close()
+"
+
 ### 多机部署
 1. 所有服务器 `SESSION_SECRET` 设置一样的值。
 2. 必须设置 `SQL_DSN`，使用 MySQL 数据库而非 SQLite，所有服务器连接同一个数据库。

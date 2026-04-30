@@ -106,7 +106,7 @@ func getRequestBody(c *gin.Context, meta *meta.Meta, textRequest *model.GeneralO
 			logger.Errorf(c.Request.Context(), "[AnthropicCompatible] GetRequestBody error: %v", err)
 			return nil, err
 		}
-		logger.Infof(c.Request.Context(), "[AnthropicCompatible] getRequestBody (cached): %s", string(bodyBytes))
+		logger.Infof(c.Request.Context(), "[AnthropicCompatible] getRequestBody (cached), size: %d bytes", len(bodyBytes))
 		return bytes.NewReader(bodyBytes), nil
 	}
 
@@ -122,7 +122,7 @@ func getRequestBody(c *gin.Context, meta *meta.Meta, textRequest *model.GeneralO
 		logger.Debugf(c.Request.Context(), "converted request json_marshal_failed: %s\n", err.Error())
 		return nil, err
 	}
-	logger.Debugf(c.Request.Context(), "converted request: \n%s", string(jsonData))
+	logger.Debugf(c.Request.Context(), "converted request, size: %d bytes", len(jsonData))
 	requestBody = bytes.NewBuffer(jsonData)
 	return requestBody, nil
 }

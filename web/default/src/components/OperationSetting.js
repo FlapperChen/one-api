@@ -32,12 +32,19 @@ const OperationSetting = () => {
     DisplayTokenStatEnabled: '',
     ApproximateTokenEnabled: '',
     RetryTimes: 0,
+    AutoChannelSelectModels: '',
   });
   const [originInputs, setOriginInputs] = useState({});
   let [loading, setLoading] = useState(false);
   let [historyTimestamp, setHistoryTimestamp] = useState(
     timestamp2string(now.getTime() / 1000 - 30 * 24 * 3600)
   ); // a month ago
+
+  // Auto channel select state
+  let [availableGroups, setAvailableGroups] = useState([]);
+  let [selectedGroup, setSelectedGroup] = useState('');
+  let [groupModels, setGroupModels] = useState([]);
+  let [selectedModels, setSelectedModels] = useState([]);
 
   const getOptions = async () => {
     const res = await API.get('/api/option/');
@@ -48,11 +55,12 @@ const OperationSetting = () => {
         if (
           item.key === 'ModelRatio' ||
           item.key === 'GroupRatio' ||
-          item.key === 'CompletionRatio'
+          item.key === 'CompletionRatio' ||
+          item.key === 'AutoChannelSelectModels'
         ) {
           item.value = JSON.stringify(JSON.parse(item.value), null, 2);
         }
-        if (item.value === '{}') {
+        if (item.value === '{}' || item.value === '[]') {
           item.value = '';
         }
         newInputs[item.key] = item.value;
@@ -66,7 +74,89 @@ const OperationSetting = () => {
 
   useEffect(() => {
     getOptions().then();
+    loadGroups().then();
   }, []);
+
+  const loadGroups = async () => {
+    const res = await API.get('/api/user/groups');
+    const { success, message, data } = res.data;
+    if (success) {
+      const groups = data.map((g) => ({ key: g, text: g, value: g }));
+      setAvailableGroups(groups);
+      if (groups.length > 0) {
+        setSelectedGroup(groups[0].value);
+        loadGroupModels(groups[0].value);
+      }
+    } else {
+      showError(message);
+    }
+  };
+
+  const loadGroupModels = async (group) => {
+    const res = await API.get(`/api/group/models?group=${encodeURIComponent(group)}`);
+    const { success, message, data } = res.data;
+    if (success) {
+      setGroupModels(data);
+      // Parse current config to set selected models
+      try {
+        const config = JSON.parse(inputs.AutoChannelSelectModels || '[]');
+        const groupConfig = config.find((c) => c.groups && c.groups.includes(group));
+        setSelectedModels(groupConfig ? [groupConfig.model] : []);
+      } catch {
+        setSelectedModels([]);
+      }
+    } else {
+      showError(message);
+    }
+  };
+
+  const handleGroupChange = (e, { value }) => {
+    setSelectedGroup(value);
+    loadGroupModels(value);
+  };
+
+  const handleModelChange = (e, { value }) => {
+    setSelectedModels(value);
+  };
+
+  const addModelToConfig = () => {
+    if (!selectedGroup || selectedModels.length === 0) {
+      showError('请选择分组和模型');
+      return;
+    }
+    let config = [];
+    try {
+      config = JSON.parse(inputs.AutoChannelSelectModels || '[]');
+    } catch {
+      config = [];
+    }
+    // Remove existing config for this group
+    config = config.filter((c) => !c.groups || !c.groups.includes(selectedGroup));
+    // Add new config
+    for (const model of selectedModels) {
+      config.push({
+        model: model,
+        groups: [selectedGroup],
+      });
+    }
+    const newConfig = JSON.stringify(config, null, 2);
+    setInputs({ ...inputs, AutoChannelSelectModels: newConfig });
+  };
+
+  const removeModelFromConfig = (model, group) => {
+    let config = [];
+    try {
+      config = JSON.parse(inputs.AutoChannelSelectModels || '[]');
+    } catch {
+      return;
+    }
+    config = config.filter(
+      (c) => !(c.model === model && c.groups && c.groups.includes(group))
+    );
+    // Always store valid JSON (empty array if no config)
+    const newConfig = JSON.stringify(config, null, 2);
+    setInputs({ ...inputs, AutoChannelSelectModels: newConfig });
+  };
 
   const updateOption = async (key, value) => {
     setLoading(true);
@@ -136,6 +226,17 @@ const OperationSetting = () => {
             return;
           }
           await updateOption('CompletionRatio', inputs.CompletionRatio);
+        }
+        break;
+      case 'auto_channel_select':
+        if (originInputs['AutoChannelSelectModels'] !== inputs.AutoChannelSelectModels) {
+          // Accept empty string or valid JSON (empty array if no config)
+          const value = inputs.AutoChannelSelectModels || '[]';
+          if (value !== '[]' && !verifyJSON(value)) {
+            showError('自动渠道选择模型配置不是合法的 JSON 字符串');
+            return;
+          }
+          await updateOption('AutoChannelSelectModels', value);
         }
         break;
       case 'quota':
@@ -282,6 +383,92 @@ const OperationSetting = () => {
           >
             {t('setting.operation.ratio.buttons.save')}
           </Form.Button>
+
+          <Divider />
+          <Header as='h3'>{t('setting.operation.auto_channel_select.title')}</Header>
+          <Form.Group widths={3}>
+            <Form.Select
+              label={t('setting.operation.auto_channel_select.group')}
+              options={availableGroups}
+              placeholder={t('setting.operation.auto_channel_select.select_group')}
+              value={selectedGroup}
+              onChange={handleGroupChange}
+              selection
+              search
+            />
+            <Form.Select
+              label={t('setting.operation.auto_channel_select.model')}
+              options={groupModels.map((m) => ({ key: m, text: m, value: m }))}
+              placeholder={t('setting.operation.auto_channel_select.select_model')}
+              value={selectedModels}
+              onChange={handleModelChange}
+              selection
+              multiple
+              search
+            />
+            <Form.Button
+              onClick={addModelToConfig}
+              disabled={!selectedGroup || selectedModels.length === 0}
+            >
+              {t('setting.operation.auto_channel_select.add')}
+            </Form.Button>
+          </Form.Group>
+
+          {/* Current config list */}
+          <Form.Group widths='equal'>
+            <div style={{ width: '100%' }}>
+              <label style={{ display: 'block', marginBottom: '8px', fontWeight: 'bold' }}>
+                {t('setting.operation.auto_channel_select.current_config')}
+              </label>
+              <div style={{ border: '1px solid #e0e0e0', borderRadius: '4px', padding: '10px', minHeight: '60px' }}>
+                {(() => {
+                  try {
+                    const config = JSON.parse(inputs.AutoChannelSelectModels || '[]');
+                    if (config.length === 0) {
+                      return <span style={{ color: '#999' }}>{t('setting.operation.auto_channel_select.empty')}</span>;
+                    }
+                    return (
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                        {config.map((item, idx) => {
+                          const groups = item.groups || [];
+                          return groups.map((g, gIdx) => (
+                            <div key={`${idx}-${gIdx}`} style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              background: '#e3f2fd',
+                              borderRadius: '4px',
+                              padding: '4px 8px',
+                              gap: '8px'
+                            }}>
+                              <span>{item.model}</span>
+                              <span style={{ color: '#666' }}>({g})</span>
+                              <Form.Button
+                                onClick={() => removeModelFromConfig(item.model, g)}
+                                icon='close'
+                                size='mini'
+                                color='red'
+                                style={{ margin: 0, padding: '2px 6px' }}
+                              />
+                            </div>
+                          ));
+                        })}
+                      </div>
+                    );
+                  } catch {
+                    return <span style={{ color: '#999' }}>{t('setting.operation.auto_channel_select.empty')}</span>;
+                  }
+                })()}
+              </div>
+            </div>
+          </Form.Group>
+          <Form.Button
+            onClick={() => {
+              submitConfig('auto_channel_select').then();
+            }}
+          >
+            {t('setting.operation.auto_channel_select.buttons.save')}
+          </Form.Button>
+
           <Divider />
           <Header as='h3'>{t('setting.operation.log.title')}</Header>
           <Form.Group inline>

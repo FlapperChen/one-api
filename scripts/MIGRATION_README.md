@@ -212,7 +212,20 @@ docker ps | grep mysql
 
 ### 问题: 迁移后消费记录无法保存 (duplicate key error)
 
-PostgreSQL 序列不同步导致。迁移脚本会自动同步序列，但如果手动导入数据后仍有问题，可手动修复：
+PostgreSQL 序列不同步导致。迁移脚本会在迁移结束时自动同步序列，但以下情况可能导致序列再次不同步：
+
+- 通过 web UI 或 API 新增用户、令牌等数据
+- 手动导入数据后
+- 增量同步后新增的数据
+
+**自动修复**：重新运行迁移脚本的验证步骤（会自动同步序列）：
+
+```bash
+cd /home/bmc/sd1/CODE/one-api/scripts
+python3 migrate_mysql_pgloader.py --step 8 --auto
+```
+
+**手动修复**：执行以下 SQL 同步所有表的序列：
 
 ```bash
 PGPASSWORD='NCbmc@123' psql -h localhost -U postgres -d oneapi -c "
@@ -220,6 +233,28 @@ SELECT setval('logs_id_seq', (SELECT MAX(id) FROM logs));
 SELECT setval('users_id_seq', (SELECT MAX(id) FROM users));
 SELECT setval('channels_id_seq', (SELECT MAX(id) FROM channels));
 SELECT setval('tokens_id_seq', (SELECT MAX(id) FROM tokens));
+SELECT setval('redemptions_id_seq', (SELECT MAX(id) FROM redemptions));
+SELECT setval('options_id_seq', (SELECT MAX(id) FROM options));
+SELECT setval('abilities_id_seq', (SELECT MAX(id) FROM abilities));
+"
+```
+
+### 问题: 新建令牌时报 "duplicate key value violates unique constraint"
+
+这是 tokens 表序列不同步导致的。执行以下命令修复：
+
+```bash
+PGPASSWORD='NCbmc@123' psql -h localhost -U postgres -d oneapi -c "SELECT setval('tokens_id_seq', (SELECT MAX(id) FROM tokens));"
+```
+
+### 问题: 创建用户后无法正常使用
+
+可能是 users 或 abilities 表序列不同步：
+
+```bash
+PGPASSWORD='NCbmc@123' psql -h localhost -U postgres -d oneapi -c "
+SELECT setval('users_id_seq', (SELECT MAX(id) FROM users));
+SELECT setval('abilities_id_seq', (SELECT MAX(id) FROM abilities));
 "
 ```
 

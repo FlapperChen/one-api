@@ -12,7 +12,6 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/songquanpeng/one-api/common/ctxkey"
-	"github.com/songquanpeng/one-api/common/logger"
 	"github.com/songquanpeng/one-api/model"
 	"github.com/songquanpeng/one-api/relay/channeltype"
 )
@@ -23,7 +22,6 @@ type ModelRequest struct {
 
 func Distribute() func(c *gin.Context) {
 	return func(c *gin.Context) {
-		ctx := c.Request.Context()
 		userId := c.GetInt(ctxkey.Id)
 		userGroup, _ := model.CacheGetUserGroup(userId)
 		c.Set(ctxkey.Group, userGroup)
@@ -35,9 +33,6 @@ func Distribute() func(c *gin.Context) {
 		var typeFilter model.ChannelTypeFilter = model.ChannelTypeFilterNone
 		if _, autoSelectEnabled := c.Get(ctxkey.TokenAutoChannelSelect); autoSelectEnabled {
 			typeFilter = detectChannelTypeFromPath(c.Request.URL.Path)
-			if typeFilter != model.ChannelTypeFilterNone {
-				logger.Debugf(ctx, "自动渠道选择已启用，检测到请求格式类型: %d", typeFilter)
-			}
 		}
 
 		channelId, ok := c.Get(ctxkey.SpecificChannelId)
@@ -66,12 +61,9 @@ func Distribute() func(c *gin.Context) {
 				channel, err = getRandomChannelFromListWithTypeFilter(userGroup, requestModel, tokenChannelIds.([]int), typeFilter)
 				if err != nil {
 					// Fallback to automatic selection if all token-bound channels are unavailable
-					logger.Warnf(ctx, "令牌指定的渠道都不可用，尝试回退到自动选择")
-					// Try with type filter first, then fallback to unfiltered
 					if typeFilter != model.ChannelTypeFilterNone {
 						channel, err = model.CacheGetRandomSatisfiedChannelByType(userGroup, requestModel, false, typeFilter)
 						if err != nil {
-							logger.Warnf(ctx, "类型过滤选择失败，尝试无过滤选择")
 							channel, err = model.CacheGetRandomSatisfiedChannel(userGroup, requestModel, false)
 						}
 					} else {
@@ -89,27 +81,18 @@ func Distribute() func(c *gin.Context) {
 					channel, err = model.CacheGetRandomSatisfiedChannelByType(userGroup, requestModel, false, typeFilter)
 					if err != nil {
 						// Fallback to unfiltered selection
-						logger.Warnf(ctx, "类型过滤选择失败，尝试无过滤选择")
 						channel, err = model.CacheGetRandomSatisfiedChannel(userGroup, requestModel, false)
 					}
 				} else {
 					channel, err = model.CacheGetRandomSatisfiedChannel(userGroup, requestModel, false)
 				}
 				if err != nil {
-					message := fmt.Sprintf("当前分组 %s 下对于模型 %s 无可用渠道", userGroup, requestModel)
-					if typeFilter != model.ChannelTypeFilterNone {
-						message = fmt.Sprintf("当前分组 %s 下对于模型 %s 没有配置支持该请求格式的渠道", userGroup, requestModel)
-					}
-					if channel != nil {
-						logger.SysError(fmt.Sprintf("渠道不存在：%d", channel.Id))
-						message = "数据库一致性已被破坏，请联系管理员"
-					}
+					message := fmt.Sprintf("无法找到对应适配的渠道（当前分组: %s, 模型: %s），请联系管理员检查渠道配置和渠道优先级", userGroup, requestModel)
 					abortWithMessage(c, http.StatusServiceUnavailable, message)
 					return
 				}
 			}
 		}
-		logger.Debugf(ctx, "user id %d, user group: %s, request model: %s, using channel #%d, type filter: %d", userId, userGroup, requestModel, channel.Id, typeFilter)
 		SetupContextForSelectedChannel(c, channel, requestModel)
 		c.Next()
 	}

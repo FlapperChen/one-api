@@ -92,6 +92,8 @@ func Relay(c *gin.Context) {
 	if bizErr != nil {
 		if bizErr.StatusCode == http.StatusTooManyRequests {
 			bizErr.Error.Message = "当前分组上游负载已饱和，请稍后再试"
+		} else if bizErr.StatusCode == http.StatusBadRequest {
+			bizErr.Error.Message = "请求格式与渠道类型不匹配，请检查请求路径是否正确"
 		}
 
 		// BUG: bizErr is in race condition
@@ -122,10 +124,15 @@ func shouldRetry(c *gin.Context, statusCode int) bool {
 }
 
 func processChannelRelayError(ctx context.Context, userId int, channelId int, channelName string, err model.ErrorWithStatusCode) {
-	logger.Errorf(ctx, "relay error (channel id %d, user id: %d): %s", channelId, userId, err.Message)
+	// 截断过长的错误信息
+	errMsg := err.Message
+	if len(errMsg) > 200 {
+		errMsg = errMsg[:200] + "...(已截断)"
+	}
+	logger.Errorf(ctx, "relay error (channel id %d, user id: %d): %s", channelId, userId, errMsg)
 	// https://platform.openai.com/docs/guides/error-codes/api-errors
 	if monitor.ShouldDisableChannel(&err.Error, err.StatusCode) {
-		monitor.DisableChannel(channelId, channelName, err.Message)
+		monitor.DisableChannel(channelId, channelName, errMsg)
 	} else {
 		monitor.Emit(channelId, false)
 	}

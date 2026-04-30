@@ -75,6 +75,7 @@ func InitOptionMap() {
 	config.OptionMap["QuotaPerUnit"] = strconv.FormatFloat(config.QuotaPerUnit, 'f', -1, 64)
 	config.OptionMap["RetryTimes"] = strconv.Itoa(config.RetryTimes)
 	config.OptionMap["Theme"] = config.Theme
+	config.OptionMap["AutoChannelSelectModels"] = "[]"
 	config.OptionMapRWMutex.Unlock()
 	loadOptionsFromDatabase()
 }
