@@ -23,4 +23,10 @@ const (
 	SystemPrompt      = "system_prompt"
 	TokenChannelIds   = "token_channel_ids"
 	TokenAutoChannelSelect = "token_auto_channel_select"
+	UserConcurrentLimit    = "user_concurrent_limit"
+	UserCurrentConcurrent  = "user_current_concurrent"
+	RequestCacheId         = "request_cache_id"
+	RequestFingerprint     = "request_fingerprint"
+	RequestWaitingDuplicate = "request_waiting_duplicate"
+	RequestDuplicateOf     = "request_duplicate_of"
 )

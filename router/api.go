@@ -49,6 +49,10 @@ func SetApiRouter(router *gin.Engine) {
 				selfRoute.POST("/topup", controller.TopUp)
 				selfRoute.GET("/available_models", controller.GetUserAvailableModels)
 				selfRoute.GET("/groups", controller.GetAllGroups)
+				// 用户并发配置
+				selfRoute.GET("/concurrency", controller.GetUserConcurrencyConfig)
+				selfRoute.PUT("/concurrency", controller.UpdateUserConcurrencyConfig)
+				selfRoute.GET("/concurrency/current", controller.GetUserCurrentConcurrent)
 			}
 
 			adminRoute := userRoute.Group("/")
@@ -61,6 +65,10 @@ func SetApiRouter(router *gin.Engine) {
 				adminRoute.POST("/manage", controller.ManageUser)
 				adminRoute.PUT("/", controller.UpdateUser)
 				adminRoute.DELETE("/:id", controller.DeleteUser)
+				// 管理员用户并发配置管理
+				adminRoute.GET("/concurrency/stats", controller.GetAllConcurrencyStats)
+				adminRoute.GET("/concurrency/:id", controller.GetUserConcurrencyConfigById)
+				adminRoute.PUT("/concurrency/:id", controller.UpdateUserConcurrencyConfigById)
 			}
 		}
 		optionRoute := apiRouter.Group("/option")
@@ -69,6 +77,10 @@ func SetApiRouter(router *gin.Engine) {
 			optionRoute.GET("/", controller.GetOptions)
 			optionRoute.PUT("/", controller.UpdateOption)
 		}
+		// 系统负载信息
+		apiRouter.GET("/system/load", controller.GetSystemLoadInfo)
+		// 自动并发限制信息
+		apiRouter.GET("/system/auto-concurrency-limit", controller.GetAutoConcurrencyLimit)
 		channelRoute := apiRouter.Group("/channel")
 		channelRoute.Use(middleware.AdminAuth())
 		{

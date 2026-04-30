@@ -672,6 +672,40 @@
           "save": "保存监控设置"
         }
       },
+      "concurrency": {
+        "title": "并发控制与负载管理",
+        "dedup_enable": "启用请求去重",
+        "dedup_description": "识别客户端重试请求，对于完全相同的请求（指纹相同）直接返回缓存响应，避免重复处理。默认开启。",
+        "manual_limit_enable": "启用手动并发限制",
+        "auto_limit_enable": "启用自动并发限制",
+        "max_concurrent": "用户最大并发数",
+        "wait_timeout": "排队等待超时",
+        "check_interval": "检查间隔",
+        "current_dynamic_limit": "当前自动限制最大并发数",
+        "actual_limit": "实际生效限制",
+        "factor_weights": "动态因子权重配置",
+        "factor_duration": "请求时长因子",
+        "factor_concurrent": "当前并发因子",
+        "factor_trend": "并发趋势因子",
+        "factor_gpu": "GPU KV Cache因子",
+        "reset_defaults": "恢复默认参数",
+        "gpu_monitoring_enable": "启用GPU监控",
+        "vllm_api_url": "vLLM API地址",
+        "gpu_kv_warn": "KV Cache警告阈值",
+        "gpu_kv_max": "KV Cache最大阈值",
+        "cache_ttl": "缓存TTL",
+        "cache_ttl_placeholder": "请求缓存过期时间（秒）",
+        "status_load_level": "负载等级",
+        "status_gpu_usage": "GPU使用率",
+        "status_current_concurrent": "当前并发数",
+        "load_level_low": "正常",
+        "load_level_medium": "中等",
+        "load_level_high": "高",
+        "load_level_critical": "临界",
+        "buttons": {
+          "save": "保存设置"
+        }
+      },
       "general": {
         "title": "通用设置",
         "topup_link": "充值链接",

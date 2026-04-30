@@ -33,6 +33,38 @@ const OperationSetting = () => {
     ApproximateTokenEnabled: '',
     RetryTimes: 0,
     AutoChannelSelectModels: '',
+    // 并发限制配置
+    EnableManualConcurrencyLimit: '',
+    EnableAutoConcurrencyLimit: '',
+    UserBaseConcurrentLimit: 5,
+    ConcurrencyWaitTimeout: 30,
+    ConcurrencyCheckInterval: 100,
+    // 自动并发因子权重
+    DurationFactorWeight: 25,
+    ConcurrentFactorWeight: 25,
+    TrendFactorWeight: 20,
+    GPUFactorWeight: 30,
+    DurationThresholds: '1000:1.0,3000:0.8,5000:0.5,10000:0.1',
+    GPUThresholds: '50:1.0,70:0.8,85:0.5,95:0.1,100:0.1',
+    // GPU 监控配置
+    EnableGPUMonitoring: '',
+    VLLMAPIURL: 'http://localhost:8000',
+    GPUKVCacheWarn: 85.0,
+    GPUKVCacheMax: 95.0,
+    // 请求去重配置
+    EnableRequestDeduplication: 'true',  // 默认开启
+    RequestCacheTTL: 30,
+  });
+
+  // 自动并发限制实时状态
+  const [autoStatus, setAutoStatus] = useState({
+    dynamicLimit: 0,
+    manualLimit: 5,
+    actualLimit: 5,
+    loadLevel: 0,
+    factors: { duration: 1.0, concurrent: 1.0, trend: 1.0, gpu: 1.0 },
+    metrics: { avgDuration: 0, currentConcurrent: 0, gpuUsage: 0 },
+    enabled: { manual: false, auto: false, dedup: false, gpu: false },
   });
   const [originInputs, setOriginInputs] = useState({});
   let [loading, setLoading] = useState(false);
@@ -65,8 +97,31 @@ const OperationSetting = () => {
         }
         newInputs[item.key] = item.value;
       });
-      setInputs(newInputs);
-      setOriginInputs(newInputs);
+
+      // 合并默认配置（确保并发相关配置有默认值）
+      const defaultInputs = {
+        EnableManualConcurrencyLimit: 'false',
+        EnableAutoConcurrencyLimit: 'false',
+        UserBaseConcurrentLimit: 5,
+        ConcurrencyWaitTimeout: 30,
+        ConcurrencyCheckInterval: 100,
+        DurationFactorWeight: 25,
+        ConcurrentFactorWeight: 25,
+        TrendFactorWeight: 20,
+        GPUFactorWeight: 30,
+        DurationThresholds: '1000:1.0,3000:0.8,5000:0.5,10000:0.1',
+        GPUThresholds: '50:1.0,70:0.8,85:0.5,95:0.1,100:0.1',
+        EnableGPUMonitoring: 'false',
+        VLLMAPIURL: 'http://localhost:8000',
+        GPUKVCacheWarn: 85.0,
+        GPUKVCacheMax: 95.0,
+        EnableRequestDeduplication: 'true',  // 默认开启
+        RequestCacheTTL: 30,
+      };
+
+      // 合并：使用API返回的值，否则使用默认值
+      setInputs({ ...defaultInputs, ...newInputs });
+      setOriginInputs({ ...defaultInputs, ...newInputs });
     } else {
       showError(message);
     }
@@ -75,7 +130,58 @@ const OperationSetting = () => {
   useEffect(() => {
     getOptions().then();
     loadGroups().then();
+    fetchAutoStatus();
   }, []);
+
+  // 获取自动并发限制状态
+  const fetchAutoStatus = async () => {
+    try {
+      const res = await API.get('/api/system/auto-concurrency-limit');
+      const { success, data } = res.data;
+      if (success && data) {
+        setAutoStatus({
+          dynamicLimit: data.dynamic_limit || 0,
+          manualLimit: data.manual_limit || 5,
+          actualLimit: data.actual_limit || 5,
+          loadLevel: data.load_level || 0,
+          factors: data.factors || { duration: 1.0, concurrent: 1.0, trend: 1.0, gpu: 1.0 },
+          weights: data.weights || { duration: 25, concurrent: 25, trend: 20, gpu: 30 },
+          metrics: data.metrics || { avgDuration: 0, currentConcurrent: 0, gpuUsage: 0 },
+          enabled: data.enabled || { manual: false, auto: false, dedup: true, gpu: false },
+        });
+      }
+    } catch (e) {
+      // 忽略错误
+    }
+  };
+
+  // 自动刷新状态（当自动并发启用时）
+  useEffect(() => {
+    if (inputs.EnableAutoConcurrencyLimit === 'true') {
+      const interval = setInterval(fetchAutoStatus, 5000);
+      return () => clearInterval(interval);
+    }
+  }, [inputs.EnableAutoConcurrencyLimit]);
+
+  // 恢复默认参数
+  const resetToDefaults = () => {
+    setInputs({
+      ...inputs,
+      DurationFactorWeight: 25,
+      ConcurrentFactorWeight: 25,
+      TrendFactorWeight: 20,
+      GPUFactorWeight: 30,
+      DurationThresholds: '1000:1.0,3000:0.8,5000:0.5,10000:0.1',
+      GPUThresholds: '50:1.0,70:0.8,85:0.5,95:0.1,100:0.1',
+    });
+  };
+
+  // 获取负载等级文字
+  const getLoadLevelText = (level) => {
+    const levels = [t('setting.operation.concurrency.load_level_low'), t('setting.operation.concurrency.load_level_medium'),
+      t('setting.operation.concurrency.load_level_high'), t('setting.operation.concurrency.load_level_critical')];
+    return levels[level] || levels[0];
+  };
 
   const loadGroups = async () => {
     const res = await API.get('/api/user/groups');
@@ -160,28 +266,35 @@ const OperationSetting = () => {
 
   const updateOption = async (key, value) => {
     setLoading(true);
-    if (key.endsWith('Enabled')) {
-      value = inputs[key] === 'true' ? 'false' : 'true';
-    }
     const res = await API.put('/api/option/', {
       key,
-      value,
+      value: String(value),
     });
     const { success, message } = res.data;
     if (success) {
-      setInputs((inputs) => ({ ...inputs, [key]: value }));
+      setInputs((inputs) => ({ ...inputs, [key]: String(value) }));
     } else {
       showError(message);
     }
     setLoading(false);
   };
 
-  const handleInputChange = async (e, { name, value }) => {
+  const handleInputChange = async (e, { name, value, checked }) => {
     if (name.endsWith('Enabled')) {
-      await updateOption(name, value);
+      // Checkbox 的 value 是静态的，用 checked 代替
+      const newValue = checked !== undefined ? String(checked) : value;
+      console.log('Input change (checkbox):', name, '=', newValue);  // 调试
+      await updateOption(name, newValue);
     } else {
       setInputs((inputs) => ({ ...inputs, [name]: value }));
     }
+  };
+
+  // Checkbox 专用处理函数（备用，用于内联 onChange）
+  const handleCheckboxChange = async (name, checked) => {
+    const newValue = String(checked);
+    console.log('Checkbox change:', name, '=', newValue);  // 调试日志
+    await updateOption(name, newValue);
   };
 
   const submitConfig = async (group) => {
@@ -203,6 +316,38 @@ const OperationSetting = () => {
             'QuotaRemindThreshold',
             inputs.QuotaRemindThreshold
           );
+        }
+        break;
+      case 'concurrency':
+        if (originInputs['EnableConcurrencyLimit'] !== inputs.EnableConcurrencyLimit) {
+          await updateOption('EnableConcurrencyLimit', inputs.EnableConcurrencyLimit);
+        }
+        if (originInputs['UserBaseConcurrentLimit'] !== inputs.UserBaseConcurrentLimit) {
+          await updateOption('UserBaseConcurrentLimit', inputs.UserBaseConcurrentLimit);
+        }
+        if (originInputs['ConcurrencyWaitTimeout'] !== inputs.ConcurrencyWaitTimeout) {
+          await updateOption('ConcurrencyWaitTimeout', inputs.ConcurrencyWaitTimeout);
+        }
+        if (originInputs['ConcurrencyCheckInterval'] !== inputs.ConcurrencyCheckInterval) {
+          await updateOption('ConcurrencyCheckInterval', inputs.ConcurrencyCheckInterval);
+        }
+        if (originInputs['EnableGPUMonitoring'] !== inputs.EnableGPUMonitoring) {
+          await updateOption('EnableGPUMonitoring', inputs.EnableGPUMonitoring);
+        }
+        if (originInputs['VLLMAPIURL'] !== inputs.VLLMAPIURL) {
+          await updateOption('VLLMAPIURL', inputs.VLLMAPIURL);
+        }
+        if (originInputs['GPUKVCacheWarn'] !== inputs.GPUKVCacheWarn) {
+          await updateOption('GPUKVCacheWarn', inputs.GPUKVCacheWarn);
+        }
+        if (originInputs['GPUKVCacheMax'] !== inputs.GPUKVCacheMax) {
+          await updateOption('GPUKVCacheMax', inputs.GPUKVCacheMax);
+        }
+        if (originInputs['EnableRequestDeduplication'] !== inputs.EnableRequestDeduplication) {
+          await updateOption('EnableRequestDeduplication', inputs.EnableRequestDeduplication);
+        }
+        if (originInputs['RequestCacheTTL'] !== inputs.RequestCacheTTL) {
+          await updateOption('RequestCacheTTL', inputs.RequestCacheTTL);
         }
         break;
       case 'ratio':
@@ -467,6 +612,229 @@ const OperationSetting = () => {
             }}
           >
             {t('setting.operation.auto_channel_select.buttons.save')}
+          </Form.Button>
+
+          <Divider />
+          <Header as='h3'>{t('setting.operation.concurrency.title')}</Header>
+
+          {/* 请求去重设置 */}
+          <div style={{ marginBottom: '20px', padding: '15px', backgroundColor: '#f8f9fa', borderRadius: '8px', border: '1px solid #e9ecef' }}>
+            <Form.Group inline>
+              <Form.Checkbox
+                checked={inputs.EnableRequestDeduplication === 'true'}
+                label={t('setting.operation.concurrency.dedup_enable')}
+                onChange={() => handleCheckboxChange('EnableRequestDeduplication', inputs.EnableRequestDeduplication !== 'true')}
+              />
+            </Form.Group>
+            <p style={{ fontSize: '13px', color: '#666', marginTop: '8px', marginBottom: '12px' }}>
+              {t('setting.operation.concurrency.dedup_description')}
+            </p>
+            <Form.Group widths='equal'>
+              <Form.Input
+                label={t('setting.operation.concurrency.cache_ttl')}
+                name='RequestCacheTTL'
+                onChange={handleInputChange}
+                value={inputs.RequestCacheTTL}
+                type='number'
+                min='5'
+                placeholder={t('setting.operation.concurrency.cache_ttl_placeholder')}
+              />
+            </Form.Group>
+          </div>
+
+          {/* 手动并发限制 */}
+          <div style={{ marginBottom: '20px', padding: '15px', backgroundColor: '#e8f4f8', borderRadius: '8px', border: '1px solid #b8daff' }}>
+            <Form.Group inline>
+              <Form.Checkbox
+                checked={inputs.EnableManualConcurrencyLimit === 'true'}
+                label={t('setting.operation.concurrency.manual_limit_enable')}
+                onChange={() => handleCheckboxChange('EnableManualConcurrencyLimit', inputs.EnableManualConcurrencyLimit !== 'true')}
+              />
+            </Form.Group>
+            <Form.Group widths={3} style={{ marginTop: '12px' }}>
+              <Form.Input
+                label={t('setting.operation.concurrency.max_concurrent')}
+                name='UserBaseConcurrentLimit'
+                onChange={handleInputChange}
+                value={inputs.UserBaseConcurrentLimit}
+                type='number'
+                min='1'
+                max='100'
+              />
+              <Form.Input
+                label={t('setting.operation.concurrency.wait_timeout')}
+                name='ConcurrencyWaitTimeout'
+                onChange={handleInputChange}
+                value={inputs.ConcurrencyWaitTimeout}
+                type='number'
+                min='1'
+              />
+              <Form.Input
+                label={t('setting.operation.concurrency.check_interval')}
+                name='ConcurrencyCheckInterval'
+                onChange={handleInputChange}
+                value={inputs.ConcurrencyCheckInterval}
+                type='number'
+                min='10'
+              />
+            </Form.Group>
+          </div>
+
+          {/* 自动并发限制 */}
+          <div style={{ marginBottom: '20px', padding: '15px', backgroundColor: '#e8f8e8', borderRadius: '8px', border: '1px solid #c3e6cb' }}>
+            <Form.Group inline>
+              <Form.Checkbox
+                checked={inputs.EnableAutoConcurrencyLimit === 'true'}
+                label={t('setting.operation.concurrency.auto_limit_enable')}
+                onChange={() => handleCheckboxChange('EnableAutoConcurrencyLimit', inputs.EnableAutoConcurrencyLimit !== 'true')}
+              />
+            </Form.Group>
+
+            {/* 实时状态显示 */}
+            {inputs.EnableAutoConcurrencyLimit === 'true' && (
+              <>
+                <div style={{ marginTop: '12px', padding: '12px', backgroundColor: '#fff', borderRadius: '6px' }}>
+                  <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap' }}>
+                    <div>
+                      <span style={{ color: '#666', fontSize: '13px' }}>{t('setting.operation.concurrency.current_dynamic_limit')}: </span>
+                      <span style={{ fontWeight: 'bold', fontSize: '18px', color: '#28a745' }}>{autoStatus.dynamicLimit}</span>
+                    </div>
+                    <div>
+                      <span style={{ color: '#666', fontSize: '13px' }}>{t('setting.operation.concurrency.actual_limit')}: </span>
+                      <span style={{ fontWeight: 'bold', fontSize: '18px', color: '#dc3545' }}>{autoStatus.actualLimit}</span>
+                    </div>
+                    <div>
+                      <span style={{ color: '#666', fontSize: '13px' }}>{t('setting.operation.concurrency.status_load_level')}: </span>
+                      <span style={{ fontWeight: 'bold', color: autoStatus.loadLevel >= 2 ? '#dc3545' : '#28a745' }}>{getLoadLevelText(autoStatus.loadLevel)}</span>
+                    </div>
+                    <div>
+                      <span style={{ color: '#666', fontSize: '13px' }}>{t('setting.operation.concurrency.status_gpu_usage')}: </span>
+                      <span style={{ fontWeight: 'bold' }}>{autoStatus.metrics.gpuUsage?.toFixed(1) || 0}%</span>
+                    </div>
+                  </div>
+                  {/* 因子值显示 */}
+                  <div style={{ marginTop: '10px', display: 'flex', gap: '15px', flexWrap: 'wrap', fontSize: '12px' }}>
+                    <span>{t('setting.operation.concurrency.factor_duration')}: <b>{autoStatus.factors.duration?.toFixed(2)}</b></span>
+                    <span>{t('setting.operation.concurrency.factor_concurrent')}: <b>{autoStatus.factors.concurrent?.toFixed(2)}</b></span>
+                    <span>{t('setting.operation.concurrency.factor_trend')}: <b>{autoStatus.factors.trend?.toFixed(2)}</b></span>
+                    <span>{t('setting.operation.concurrency.factor_gpu')}: <b>{autoStatus.factors.gpu?.toFixed(2)}</b></span>
+                  </div>
+                </div>
+
+                {/* 因子权重配置 */}
+                <div style={{ marginTop: '15px' }}>
+                  <b style={{ display: 'block', marginBottom: '10px' }}>{t('setting.operation.concurrency.factor_weights')}</b>
+                  <Form.Group widths={4}>
+                    <Form.Input
+                      label={t('setting.operation.concurrency.factor_duration')}
+                      name='DurationFactorWeight'
+                      onChange={handleInputChange}
+                      value={inputs.DurationFactorWeight}
+                      type='number'
+                      min='0'
+                      max='100'
+                    />
+                    <Form.Input
+                      label={t('setting.operation.concurrency.factor_concurrent')}
+                      name='ConcurrentFactorWeight'
+                      onChange={handleInputChange}
+                      value={inputs.ConcurrentFactorWeight}
+                      type='number'
+                      min='0'
+                      max='100'
+                    />
+                    <Form.Input
+                      label={t('setting.operation.concurrency.factor_trend')}
+                      name='TrendFactorWeight'
+                      onChange={handleInputChange}
+                      value={inputs.TrendFactorWeight}
+                      type='number'
+                      min='0'
+                      max='100'
+                    />
+                    <Form.Input
+                      label={t('setting.operation.concurrency.factor_gpu')}
+                      name='GPUFactorWeight'
+                      onChange={handleInputChange}
+                      value={inputs.GPUFactorWeight}
+                      type='number'
+                      min='0'
+                      max='100'
+                    />
+                  </Form.Group>
+                </div>
+
+                {/* 恢复默认按钮 */}
+                <Form.Button
+                  onClick={resetToDefaults}
+                  size='small'
+                  style={{ marginTop: '10px' }}
+                >
+                  {t('setting.operation.concurrency.reset_defaults')}
+                </Form.Button>
+              </>
+            )}
+          </div>
+
+          {/* GPU监控配置 */}
+          <div style={{ marginBottom: '20px', padding: '15px', backgroundColor: '#f8f9fa', borderRadius: '8px', border: '1px solid #e9ecef' }}>
+            <Form.Group inline>
+              <Form.Checkbox
+                checked={inputs.EnableGPUMonitoring === 'true'}
+                label={t('setting.operation.concurrency.gpu_monitoring_enable')}
+                onChange={() => handleCheckboxChange('EnableGPUMonitoring', inputs.EnableGPUMonitoring !== 'true')}
+              />
+            </Form.Group>
+            {inputs.EnableGPUMonitoring === 'true' && (
+              <>
+                <Form.Group widths={2} style={{ marginTop: '12px' }}>
+                  <Form.Input
+                    label={t('setting.operation.concurrency.vllm_api_url')}
+                    name='VLLMAPIURL'
+                    onChange={handleInputChange}
+                    value={inputs.VLLMAPIURL}
+                    type='url'
+                  />
+                  <Form.Input
+                    label={t('setting.operation.concurrency.cache_ttl')}
+                    name='RequestCacheTTL'
+                    onChange={handleInputChange}
+                    value={inputs.RequestCacheTTL}
+                    type='number'
+                    min='5'
+                  />
+                </Form.Group>
+                <Form.Group widths={2}>
+                  <Form.Input
+                    label={t('setting.operation.concurrency.gpu_kv_warn')}
+                    name='GPUKVCacheWarn'
+                    onChange={handleInputChange}
+                    value={inputs.GPUKVCacheWarn}
+                    type='number'
+                    min='0'
+                    max='100'
+                  />
+                  <Form.Input
+                    label={t('setting.operation.concurrency.gpu_kv_max')}
+                    name='GPUKVCacheMax'
+                    onChange={handleInputChange}
+                    value={inputs.GPUKVCacheMax}
+                    type='number'
+                    min='0'
+                    max='100'
+                  />
+                </Form.Group>
+              </>
+            )}
+          </div>
+
+          <Form.Button
+            onClick={() => {
+              submitConfig('concurrency').then();
+            }}
+            primary
+          >
+            {t('setting.operation.concurrency.buttons.save')}
           </Form.Button>
 
           <Divider />

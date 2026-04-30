@@ -13,6 +13,7 @@ import (
 
 	"github.com/songquanpeng/one-api/common"
 	"github.com/songquanpeng/one-api/common/client"
+	"github.com/songquanpeng/one-api/common/concurrency"
 	"github.com/songquanpeng/one-api/common/config"
 	"github.com/songquanpeng/one-api/common/i18n"
 	"github.com/songquanpeng/one-api/common/logger"
@@ -58,6 +59,12 @@ func main() {
 	err = common.InitRedisClient()
 	if err != nil {
 		logger.FatalLog("failed to initialize Redis: " + err.Error())
+	}
+
+	// Initialize concurrency limiter
+	if config.EnableConcurrencyLimit && common.RedisEnabled {
+		concurrency.InitLimiter()
+		logger.SysLog("user concurrency limit enabled")
 	}
 
 	// Initialize options

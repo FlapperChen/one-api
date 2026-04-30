@@ -76,6 +76,28 @@ func InitOptionMap() {
 	config.OptionMap["RetryTimes"] = strconv.Itoa(config.RetryTimes)
 	config.OptionMap["Theme"] = config.Theme
 	config.OptionMap["AutoChannelSelectModels"] = "[]"
+	// 并发限制配置
+	config.OptionMap["EnableConcurrencyLimit"] = strconv.FormatBool(config.EnableConcurrencyLimit)
+	config.OptionMap["EnableManualConcurrencyLimit"] = strconv.FormatBool(config.EnableManualConcurrencyLimit)
+	config.OptionMap["EnableAutoConcurrencyLimit"] = strconv.FormatBool(config.EnableAutoConcurrencyLimit)
+	config.OptionMap["UserBaseConcurrentLimit"] = strconv.Itoa(config.UserBaseConcurrentLimit)
+	config.OptionMap["ConcurrencyWaitTimeout"] = strconv.Itoa(config.ConcurrencyWaitTimeout)
+	config.OptionMap["ConcurrencyCheckInterval"] = strconv.Itoa(config.ConcurrencyCheckInterval)
+	// 自动并发因子权重
+	config.OptionMap["DurationFactorWeight"] = strconv.Itoa(config.DurationFactorWeight)
+	config.OptionMap["ConcurrentFactorWeight"] = strconv.Itoa(config.ConcurrentFactorWeight)
+	config.OptionMap["TrendFactorWeight"] = strconv.Itoa(config.TrendFactorWeight)
+	config.OptionMap["GPUFactorWeight"] = strconv.Itoa(config.GPUFactorWeight)
+	config.OptionMap["DurationThresholds"] = config.DurationThresholds
+	config.OptionMap["GPUThresholds"] = config.GPUThresholds
+	// GPU 监控配置
+	config.OptionMap["EnableGPUMonitoring"] = strconv.FormatBool(config.EnableGPUMonitoring)
+	config.OptionMap["VLLMAPIURL"] = config.VLLMAPIURL
+	config.OptionMap["GPUKVCacheWarn"] = strconv.FormatFloat(config.GPUKVCacheWarnThreshold, 'f', -1, 64)
+	config.OptionMap["GPUKVCacheMax"] = strconv.FormatFloat(config.GPUKVCacheMaxThreshold, 'f', -1, 64)
+	// 请求去重配置
+	config.OptionMap["EnableRequestDeduplication"] = strconv.FormatBool(config.EnableRequestDeduplication)
+	config.OptionMap["RequestCacheTTL"] = strconv.Itoa(config.RequestCacheTTL)
 	config.OptionMapRWMutex.Unlock()
 	loadOptionsFromDatabase()
 }
@@ -154,6 +176,16 @@ func updateOptionMap(key string, value string) (err error) {
 			config.DisplayInCurrencyEnabled = boolValue
 		case "DisplayTokenStatEnabled":
 			config.DisplayTokenStatEnabled = boolValue
+		case "EnableConcurrencyLimit":
+			config.EnableConcurrencyLimit = boolValue
+		case "EnableGPUMonitoring":
+			config.EnableGPUMonitoring = boolValue
+		case "EnableRequestDeduplication":
+			config.EnableRequestDeduplication = boolValue
+		case "EnableManualConcurrencyLimit":
+			config.EnableManualConcurrencyLimit = boolValue
+		case "EnableAutoConcurrencyLimit":
+			config.EnableAutoConcurrencyLimit = boolValue
 		}
 	}
 	switch key {
@@ -240,6 +272,36 @@ func updateOptionMap(key string, value string) (err error) {
 		config.QuotaPerUnit, _ = strconv.ParseFloat(value, 64)
 	case "Theme":
 		config.Theme = value
+	// 并发限制配置
+	case "UserBaseConcurrentLimit":
+		config.UserBaseConcurrentLimit, _ = strconv.Atoi(value)
+	case "ConcurrencyWaitTimeout":
+		config.ConcurrencyWaitTimeout, _ = strconv.Atoi(value)
+	case "ConcurrencyCheckInterval":
+		config.ConcurrencyCheckInterval, _ = strconv.Atoi(value)
+	// GPU 监控配置
+	case "VLLMAPIURL":
+		config.VLLMAPIURL = value
+	case "GPUKVCacheWarn":
+		config.GPUKVCacheWarnThreshold, _ = strconv.ParseFloat(value, 64)
+	case "GPUKVCacheMax":
+		config.GPUKVCacheMaxThreshold, _ = strconv.ParseFloat(value, 64)
+	// 请求去重配置
+	case "RequestCacheTTL":
+		config.RequestCacheTTL, _ = strconv.Atoi(value)
+	// 自动并发因子权重
+	case "DurationFactorWeight":
+		config.DurationFactorWeight, _ = strconv.Atoi(value)
+	case "ConcurrentFactorWeight":
+		config.ConcurrentFactorWeight, _ = strconv.Atoi(value)
+	case "TrendFactorWeight":
+		config.TrendFactorWeight, _ = strconv.Atoi(value)
+	case "GPUFactorWeight":
+		config.GPUFactorWeight, _ = strconv.Atoi(value)
+	case "DurationThresholds":
+		config.DurationThresholds = value
+	case "GPUThresholds":
+		config.GPUThresholds = value
 	}
 	return err
 }

@@ -70,7 +70,10 @@
       "Read(//etc/**)",
       "Bash(curl -v --noproxy '*' --connect-timeout 5 http://10.41.101.220:8000/v1/models)",
       "Bash(curl -s --noproxy '*' -X POST http://localhost:3009/v1/chat/completions -H 'Content-Type: application/json' -H 'Authorization: Bearer test-test' -d '{\"model\":\"/models/coder/minimax/MiniMax-M2\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"max_tokens\":10}')",
-      "Bash(PGPASSWORD='NCbmc@123' psql -h localhost -U postgres -d oneapi -c \"SELECT id, key FROM tokens LIMIT 1;\")"
+      "Bash(PGPASSWORD='NCbmc@123' psql -h localhost -U postgres -d oneapi -c \"SELECT id, key FROM tokens LIMIT 1;\")",
+      "Bash(node -e \"JSON.parse\\(require\\('fs'\\).readFileSync\\('src/locales/zh/translation.json', 'utf8'\\)\\); console.log\\('zh: OK'\\)\")",
+      "Bash(node -e \"JSON.parse\\(require\\('fs'\\).readFileSync\\('src/locales/en/translation.json', 'utf8'\\)\\); console.log\\('en: OK'\\)\")",
+      "Bash(npx eslint *)"
     ],
     "additionalDirectories": [
       "/tmp"

@@ -77,3 +77,54 @@ func Emit(channelId int, success bool) {
 		}
 	}()
 }
+
+// GetSystemFailRate 获取系统级失败率
+func GetSystemFailRate() float64 {
+	if !config.EnableMetric {
+		return 0.0
+	}
+	totalSuccess := 0
+	totalCount := 0
+	for _, history := range store {
+		for _, success := range history {
+			totalCount++
+			if success {
+				totalSuccess++
+			}
+		}
+	}
+	if totalCount == 0 {
+		return 0.0
+	}
+	return 1.0 - float64(totalSuccess)/float64(totalCount)
+}
+
+// GetTotalRequestCount 获取系统总请求数
+func GetTotalRequestCount() int64 {
+	if !config.EnableMetric {
+		return 0
+	}
+	totalCount := 0
+	for _, history := range store {
+		totalCount += len(history)
+	}
+	return int64(totalCount)
+}
+
+// GetChannelSuccessRate 获取指定渠道的成功率
+func GetChannelSuccessRate(channelId int) float64 {
+	if !config.EnableMetric {
+		return 1.0
+	}
+	history, ok := store[channelId]
+	if !ok || len(history) == 0 {
+		return 1.0
+	}
+	successCount := 0
+	for _, success := range history {
+		if success {
+			successCount++
+		}
+	}
+	return float64(successCount) / float64(len(history))
+}

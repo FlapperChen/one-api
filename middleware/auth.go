@@ -3,15 +3,17 @@ package middleware
 import (
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"strings"
+
 	"github.com/gin-contrib/sessions"
 	"github.com/gin-gonic/gin"
 	"github.com/songquanpeng/one-api/common/blacklist"
+	"github.com/songquanpeng/one-api/common/concurrency"
 	"github.com/songquanpeng/one-api/common/config"
 	"github.com/songquanpeng/one-api/common/ctxkey"
 	"github.com/songquanpeng/one-api/common/network"
 	"github.com/songquanpeng/one-api/model"
-	"net/http"
-	"strings"
 )
 
 func authHelper(c *gin.Context, minRole int) {
@@ -134,6 +136,18 @@ func TokenAuth() func(c *gin.Context) {
 		c.Set(ctxkey.Id, token.UserId)
 		c.Set(ctxkey.TokenId, token.Id)
 		c.Set(ctxkey.TokenName, token.Name)
+
+		// Check and acquire concurrency limit
+		limiter := concurrency.GetLimiter()
+		if limiter != nil {
+			if err := limiter.Acquire(ctx, token.UserId); err != nil {
+				abortWithMessage(c, http.StatusTooManyRequests, err.Error())
+				return
+			}
+			// Set current concurrent count to context for logging
+			c.Set(ctxkey.UserCurrentConcurrent, limiter.GetCurrentConcurrent(token.UserId))
+			c.Set(ctxkey.UserConcurrentLimit, limiter.GetLimit(token.UserId))
+		}
 
 		// Set token's allowed channel ids for channel selection
 		channelIds := token.GetChannelIds()

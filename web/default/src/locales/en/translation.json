@@ -674,6 +674,39 @@
           "save": "Save Monitor Settings"
         }
       },
+      "concurrency": {
+        "title": "Concurrency Control & Load Management",
+        "dedup_enable": "Enable Request Deduplication",
+        "dedup_description": "Identify client retry requests, return cached response for identical requests (same fingerprint) to avoid duplicate processing. Enabled by default.",
+        "manual_limit_enable": "Enable Manual Concurrency Limit",
+        "auto_limit_enable": "Enable Auto Concurrency Limit",
+        "max_concurrent": "Max Concurrent",
+        "wait_timeout": "Wait Timeout",
+        "check_interval": "Check Interval",
+        "current_dynamic_limit": "Current Dynamic Limit",
+        "actual_limit": "Actual Limit",
+        "factor_weights": "Factor Weights Configuration",
+        "factor_duration": "Duration Factor",
+        "factor_concurrent": "Concurrent Factor",
+        "factor_trend": "Trend Factor",
+        "factor_gpu": "GPU Factor",
+        "reset_defaults": "Reset to Defaults",
+        "gpu_monitoring_enable": "Enable GPU Monitoring",
+        "vllm_api_url": "vLLM API URL",
+        "gpu_kv_warn": "KV Cache Warn",
+        "gpu_kv_max": "KV Cache Max",
+        "cache_ttl": "Cache TTL",
+        "status_load_level": "Load Level",
+        "status_gpu_usage": "GPU Usage",
+        "status_current_concurrent": "Current",
+        "load_level_low": "Low",
+        "load_level_medium": "Medium",
+        "load_level_high": "High",
+        "load_level_critical": "Critical",
+        "buttons": {
+          "save": "Save Settings"
+        }
+      },
       "general": {
         "title": "General Settings",
         "topup_link": "Top-up Link",

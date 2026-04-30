@@ -1,368 +1,428 @@
-# 用户并发请求动态限制功能设计方案
+# 用户并发请求动态限制功能 (V2)
 
-> 基于渠道负载动态限制每个用户同时发送的请求数量
+> 基于渠道负载动态限制每个用户同时发送的请求数量，支持请求去重和GPU资源监控
 
-## 背景
+## 功能概述
 
-当渠道响应时间过长或负载较大时，需要限制每个用户同时发送的请求数量，防止上游过载雪崩。
+当渠道响应时间过长或负载较大时，限制每个用户同时发送的请求数量，防止上游过载雪崩。
+
+### 核心能力
+
+1. **手动模式**: 用户可配置固定最大并发数
+2. **自动模式**: 根据系统负载动态调整并发限制
+3. **请求去重**: 识别客户端重试请求，避免重复处理
+4. **GPU监控**: 集成vLLM GPU KV Cache监控，精确控制并发
 
 ---
 
-## 需求确认
+## 架构设计
 
-- **超限处理**: 排队等待
-- **限制范围**: 按用户
-- **配置管理**: 前端管理 + 数据库持久化
-  - 支持设置最大并发数
-  - 支持开关自动动态限制
-  - 显示当前并发数
+### 执行流程
+
+```
+用户请求
+    │
+    ▼
+┌──────────────────────────────────────────────────────────────┐
+│ 1. TokenAuth 中间件                                          │
+│    ├─ 验证令牌                                               │
+│    └─ 获取用户并发配置                                        │
+└──────────────────────────────────────────────────────────────┘
+    │
+    ▼
+┌──────────────────────────────────────────────────────────────┐
+│ 2. 请求去重中间件 (RequestDeduplication)                     │
+│    ├─ 计算请求指纹 (SHA256)                                  │
+│    ├─ 查询 request_cache 表                                  │
+│    │    ├─ 命中(完成) → 直接返回缓存响应                      │
+│    │    ├─ 命中(处理中) → 加入等待队列                        │
+│    │    └─ 未命中 → 正常处理                                 │
+│    └─ 设置缓存ID到上下文                                     │
+└──────────────────────────────────────────────────────────────┘
+    │
+    ▼
+┌──────────────────────────────────────────────────────────────┐
+│ 3. 并发限制检查 (TokenAuth)                                  │
+│    └─ UserConcurrencyLimiter.Acquire()                      │
+│         ├─ 获取用户配置                                       │
+│         ├─ 计算动态限制                                       │
+│         │    └─ LoadEvaluator.CalculateDynamicLimit()        │
+│         │         ├─ 请求时长因子 (25%)                       │
+│         │         ├─ 当前并发因子 (25%)                       │
+│         │         ├─ 并发趋势因子 (20%)                       │
+│         │         └─ GPU KV Cache因子 (30%)                  │
+│         └─ 超限? → 排队等待                                   │
+└──────────────────────────────────────────────────────────────┘
+    │
+    ▼
+┌──────────────────────────────────────────────────────────────┐
+│ 4. 请求处理 (Relay)                                          │
+│    └─ defer Release() → 释放并发许可                          │
+└──────────────────────────────────────────────────────────────┘
+```
 
 ---
 
 ## 数据模型
 
-### 用户并发配置表: user_concurrency_config
+### 1. user_concurrency_config
 
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| id | INT | 主键 |
-| user_id | INT | 用户ID，唯一索引 |
-| max_concurrent | INT | 最大并发数，默认5 |
-| enable_auto_limit | BOOLEAN | 是否启用自动动态限制，默认true |
-| status | INT | 状态：1=正常，2=暂停 |
-| created_at | BIGINT | 创建时间 |
-| updated_at | BIGINT | 更新时间 |
-
----
-
-## 执行流程
-
-### 手动模式 (enable_auto_limit = false)
-
-```
-用户请求 → 检查用户当前并发数 → 超限? → 排队等待
-                ↓
-         执行请求 → 完成 → 开放下一个请求
-```
-
-### 自动模式 (enable_auto_limit = true)
-
-```
-用户请求 → 渠道负载评估
-                ↓
-         计算动态并发上限
-                ↓
-         检查用户当前并发数 → 超限? → 排队等待
-                ↓
-         限制并发计数发送给渠道方
-                ↓
-         执行请求 → 完成 → 开放下一个请求
-```
-
----
-
-## 自动渠道负载评估算法
-
-### 1. 评估指标
-
-| 指标 | 数据来源 | 更新频率 |
-|------|----------|----------|
-| 渠道平均响应时间 | channel.response_time | 渠道测试时更新 |
-| 渠道请求成功率 | monitor.store | 每次请求后 |
-| 渠道当前负载 | 计算得出 | 实时 |
-| 系统失败率 | monitor.GetSystemFailRate() | 实时 |
-| 渠道错误类型分布 | monitor.ShouldDisableChannel() | 每次请求后 |
-
-### 2. 负载等级划分
+用户并发配置表。
 
 ```go
-type LoadLevel int
-
-const (
-    LoadLevelLow    LoadLevel = iota  // 0: 正常负载
-    LoadLevelMedium                    // 1: 中等负载
-    LoadLevelHigh                      // 2: 高负载
-    LoadLevelCritical                  // 3: 临界负载
-)
-
-type ChannelLoadMetrics struct {
-    ResponseTime    int64   // 响应时间(ms)
-    SuccessRate     float64 // 成功率 (0-1)
-    RequestCount    int64   // 请求数
-    ErrorCount      int64   // 错误数
-    LastResponseTime int64  // 上次响应时间
+type UserConcurrencyConfig struct {
+    ID               int    `gorm:"primaryKey"`
+    UserId           int    `gorm:"uniqueIndex"`
+    MaxConcurrent    int    `gorm:"default:5"`
+    EnableAutoLimit  bool   `gorm:"default:true"`
+    Status           int    `gorm:"default:1"` // 1=正常, 2=暂停
+    CreatedTime      int64  `gorm:"bigint"`
+    UpdatedTime      int64  `gorm:"bigint"`
 }
 ```
 
-### 3. 动态上限计算算法
+### 2. request_cache
 
-#### 算法一: 线性衰减模型 (推荐)
+请求缓存表，用于请求去重。
 
 ```go
-func CalculateDynamicLimit(baseLimit int, metrics *ChannelLoadMetrics) int {
+type RequestCache struct {
+    Id             int64  `gorm:"primaryKey;autoIncrement"`
+    UserId         int    `gorm:"index"`
+    Fingerprint    string `gorm:"index;size:64"`    // 请求指纹
+    RequestHash    string `gorm:"size:64"`          // 完整请求Hash
+    RequestType    string `gorm:"size:32"`          // chat/completion
+    Model          string `gorm:"index;size:128"`
+    Status         int    `gorm:"default:0"`        // 0=处理中, 1=完成, 2=失败
+    RequestBody    string `gorm:"type:text"`
+    ResponseBody   string `gorm:"type:longtext"`
+    ErrorMessage   string `gorm:"type:text"`
+    CreatedTime    int64  `gorm:"bigint"`
+    CompletedTime  int64  `gorm:"bigint"`
+    DuplicateCount int    `gorm:"default:0"`        // 重复请求数
+    TTL            int    `gorm:"default:30"`      // 缓存过期秒数
+}
+```
+
+---
+
+## 核心算法
+
+### 请求指纹计算
+
+```go
+func CalculateFingerprint(reqBody map[string]interface{}) string {
+    // 1. 提取关键字段 (model, messages, parameters)
+    // 2. 去除随机参数 (seed, user, stream)
+    // 3. 排序确保一致性
+    // 4. 计算 SHA256 Hash
+}
+```
+
+**指纹组成**:
+- Model 名称
+- 消息内容 (按 role:content 格式)
+- 参数 (排除随机参数后按 key 排序)
+
+### 增强版动态限制计算
+
+```go
+func (e *LoadEvaluator) CalculateDynamicLimit(baseLimit int) int {
     limit := float64(baseLimit)
 
-    // 1. 响应时间因子 (权重 40%)
-    responseTimeFactor := calculateResponseTimeFactor(metrics.ResponseTime)
-    limit *= responseTimeFactor
+    // 1. 请求时长因子 (权重 25%)
+    limit *= calculateDurationFactor(metrics.AvgRequestDuration)
 
-    // 2. 成功率因子 (权重 40%)
-    successRateFactor := calculateSuccessRateFactor(metrics.SuccessRate)
-    limit *= successRateFactor
+    // 2. 当前并发因子 (权重 25%)
+    limit *= calculateConcurrentFactor(metrics.CurrentConcurrent, baseLimit)
 
-    // 3. 请求密度因子 (权重 20%)
-    requestDensityFactor := calculateRequestDensityFactor(metrics)
-    limit *= requestDensityFactor
+    // 3. 并发趋势因子 (权重 20%)
+    limit *= calculateTrendFactor(window)
 
-    // 确保最小值为1
-    if limit < 1 {
-        limit = 1
-    }
+    // 4. GPU KV Cache 因子 (权重 30%)
+    limit *= calculateGPUFactor(metrics.GPUKVCacheUsage)
 
-    return int(limit)
-}
-
-// 响应时间因子计算
-// 响应时间 < 1s: 1.0
-// 响应时间 1-2s: 0.8
-// 响应时间 2-3s: 0.5
-// 响应时间 3-5s: 0.3
-// 响应时间 > 5s: 0.1
-func calculateResponseTimeFactor(responseTimeMs int64) float64 {
-    switch {
-    case responseTimeMs < 1000:
-        return 1.0
-    case responseTimeMs < 2000:
-        return 0.8
-    case responseTimeMs < 3000:
-        return 0.5
-    case responseTimeMs < 5000:
-        return 0.3
-    default:
-        return 0.1
-    }
-}
-
-// 成功率因子计算
-// 成功率 > 95%: 1.0
-// 成功率 90-95%: 0.8
-// 成功率 80-90%: 0.5
-// 成功率 70-80%: 0.3
-// 成功率 < 70%: 0.1
-func calculateSuccessRateFactor(successRate float64) float64 {
-    switch {
-    case successRate > 0.95:
-        return 1.0
-    case successRate > 0.90:
-        return 0.8
-    case successRate > 0.80:
-        return 0.5
-    case successRate > 0.70:
-        return 0.3
-    default:
-        return 0.1
-    }
-}
-
-// 请求密度因子 (基于时间窗口内请求量)
-// 高密度请求时降低限制
-func calculateRequestDensityFactor(metrics *ChannelLoadMetrics) float64 {
-    // 获取最近N秒内的请求数
-    requestCount := metrics.RequestCount
-    timeWindow := 60 // 60秒窗口
-
-    if requestCount < 100 {
-        return 1.0
-    } else if requestCount < 500 {
-        return 0.8
-    } else if requestCount < 1000 {
-        return 0.6
-    } else {
-        return 0.4
-    }
+    return max(1, int(limit))
 }
 ```
 
-#### 算法二: 指数加权移动平均 (EWMA)
+**因子表**:
 
-```go
-type EWMA struct {
-    value      float64
-    decayFactor float64  // 衰减因子，通常 0.9-0.99
-}
+| 响应时间 | 因子值 | GPU使用率 | 因子值 |
+|----------|--------|-----------|--------|
+| < 1s | 1.0 | < 50% | 1.0 |
+| 1-3s | 0.8 | 50-70% | 0.8 |
+| 3-5s | 0.5 | 70-85% | 0.5 |
+| 5-10s | 0.3 | 85-95% | 0.3 |
+| > 10s | 0.1 | > 95% | 0.1 |
 
-// 初始化EWMA
-func NewEWMA(decayFactor float64) *EWMA {
-    return &EWMA{value: 0, decayFactor: decayFactor}
-}
+---
 
-// 添加新样本
-func (e *EWMA) Add(sample float64) {
-    e.value = e.decayFactor*e.value + (1-e.decayFactor)*sample
-}
+## GPU 监控
 
-// 获取当前估计值
-func (e *EWMA) Value() float64 {
-    return e.value
-}
-
-// 使用EWMA计算动态限制
-func CalculateDynamicLimitEWMA(baseLimit int, metrics *ChannelLoadMetrics) int {
-    // 响应时间EWMA
-    rtEWMA := NewEWMA(0.9)
-    rtEWMA.Add(float64(metrics.ResponseTime))
-
-    // 成功率EWMA
-    srEWMA := NewEWMA(0.9)
-    srEWMA.Add(metrics.SuccessRate)
-
-    // 计算综合负载分数 (0-1，越高负载越重)
-    loadScore := 0.0
-
-    // 响应时间负载 (归一化到0-1)
-    // 假设正常响应时间1s，临界5s
-    rtLoad := min(rtEWMA.Value()/5000.0, 1.0)
-    loadScore += rtLoad * 0.5  // 权重50%
-
-    // 成功率负载 (归一化到0-1)
-    srLoad := 1.0 - srEWMA.Value()  // 成功率越低，负载越高
-    loadScore += srLoad * 0.5  // 权重50%
-
-    // 根据负载分数计算限制
-    if loadScore < 0.2 {
-        return baseLimit
-    } else if loadScore < 0.4 {
-        return int(float64(baseLimit) * 0.8)
-    } else if loadScore < 0.6 {
-        return int(float64(baseLimit) * 0.5)
-    } else if loadScore < 0.8 {
-        return int(float64(baseLimit) * 0.3)
-    } else {
-        return 1
-    }
-}
-```
-
-### 4. 推荐算法选择
-
-| 算法 | 适用场景 | 优点 | 缺点 |
-|------|----------|------|------|
-| 线性衰减 | 简单场景，快速实现 | 直观，易调试 | 响应较慢 |
-| EWMA | 需要平滑处理 | 抗噪声，平滑过渡 | 需要预热 |
-| 回归模型 | 精确控制 | 精确，可训练 | 需要数据积累 |
-
-**推荐**: 先使用**算法一 (线性衰减)**快速实现，后续可升级到 EWMA。
-
-### 5. 算法参数建议
-
-```go
-// 推荐配置参数
-const (
-    ResponseTimeWeight   = 0.4  // 响应时间权重
-    SuccessRateWeight    = 0.4  // 成功率权重
-    RequestDensityWeight = 0.2  // 请求密度权重
-
-    // 响应时间阈值 (ms)
-    RTExcellent = 1000  // 优秀: < 1s
-    RTGood      = 2000  // 良好: 1-2s
-    RTMedium    = 3000  // 中等: 2-3s
-    RTBad       = 5000  // 较差: 3-5s
-
-    // 成功率阈值
-    SRExcellent = 0.95  // 优秀: > 95%
-    SRGood      = 0.90  // 良好: 90-95%
-    SRMedium    = 0.80  // 中等: 80-90%
-    SRBad       = 0.70  // 较差: 70-80%
-)
-```
-
-### 6. 执行流程 (更新)
-
-#### 手动模式 (enable_auto_limit = false)
+### vLLM 日志格式
 
 ```
-用户请求 → 检查用户当前并发数 → 超限? → 排队等待
-                ↓
-         执行请求 → 完成 → 开放下一个请求
+Engine 000: Avg prompt throughput: 7002.4 tokens/s,
+           Avg generation throughput: 131.4 tokens/s,
+           Running: 3 reqs, Waiting: 0 reqs,
+           GPU KV cache usage: 15.9%,
+           Prefix cache hit rate: 55.4%
 ```
 
-#### 自动模式 (enable_auto_limit = true)
+### 数据获取方式
+
+1. **vLLM Metrics API** (推荐): `GET /metrics` → Prometheus 格式
+2. **日志文件解析**: 读取 `/var/log/vllm/*.log`
+
+### 监控指标
+
+| 指标 | 说明 |
+|------|------|
+| GPU KV Cache Usage | GPU 显存使用百分比 |
+| Running Requests | 正在运行的请求数 |
+| Waiting Requests | 等待队列长度 |
+| Prompt Throughput | 提示词处理速度 (tokens/s) |
+| Generation Throughput | 生成速度 (tokens/s) |
+
+---
+
+## API 接口
+
+### 用户接口
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | /api/user/concurrency | 获取用户配置 |
+| PUT | /api/user/concurrency | 更新用户配置 |
+| GET | /api/user/concurrency/current | 获取当前并发数 |
+
+### 管理员接口
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | /api/admin/concurrency/stats | 所有用户并发统计 |
+| GET | /api/admin/concurrency/:id | 获取指定用户配置 |
+| PUT | /api/admin/concurrency/:id | 更新指定用户配置 |
+
+### 系统接口
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | /api/system/load | 系统负载信息 |
+
+---
+
+## 环境变量
+
+### 并发限制
+
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| ENABLE_CONCURRENCY_LIMIT | false | 启用并发限制 |
+| USER_BASE_CONCURRENT_LIMIT | 5 | 用户默认最大并发数 |
+| CONCURRENCY_WAIT_TIMEOUT | 30 | 排队等待超时(秒) |
+| CONCURRENCY_CHECK_INTERVAL | 100 | 检查间隔(毫秒) |
+
+### GPU 监控
+
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| ENABLE_GPU_MONITORING | false | 启用GPU监控 |
+| VLLM_LOG_PATH | /var/log/vllm | vLLM日志路径 |
+| VLLM_API_URL | http://localhost:8000 | vLLM Metrics API |
+| VLLM_REFRESH_INTERVAL | 5 | 刷新间隔(秒) |
+| GPU_KV_CACHE_WARN | 85.0 | KV Cache警告阈值(%) |
+| GPU_KV_CACHE_MAX | 95.0 | KV Cache最大阈值(%) |
+
+### 请求去重
+
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| ENABLE_REQUEST_DEDUP | false | 启用请求去重 |
+| REQUEST_CACHE_TTL | 30 | 缓存过期时间(秒) |
+
+---
+
+## 前端配置
+
+在 **运营设置** 页面中配置并发限制功能。
+
+### 并发限制设置
+
+| 配置项 | 说明 | 默认值 |
+|--------|------|--------|
+| 用户最大并发数 | 每个用户同时发送的最大请求数 | 5 |
+| 排队等待超时 | 排队等待超时时间（秒） | 30 |
+| 检查间隔 | 并发检查间隔（毫秒） | 100 |
+
+### 开关选项
+
+| 选项 | 说明 |
+|------|------|
+| 启用并发限制 | 开启后限制每个用户的并发请求数 |
+| 启用GPU监控 | 开启后监控GPU KV Cache使用率 |
+| 启用请求去重 | 开启后识别并合并重复请求 |
+
+### GPU监控与请求去重
+
+| 配置项 | 说明 | 默认值 |
+|--------|------|--------|
+| vLLM API地址 | vLLM Metrics API地址 | http://localhost:8000 |
+| KV Cache警告阈值 | GPU KV Cache警告阈值(%) | 85 |
+| KV Cache最大阈值 | GPU KV Cache最大阈值(%) | 95 |
+| 请求缓存TTL | 请求缓存过期时间（秒） | 30 |
+
+### 界面截图位置
 
 ```
-用户请求
-   │
-   ├─→ [Web设置: enable_auto_limit?]
-   │         │
-   │         ├─ NO (手动模式) ──→ 检查并发数 ──→ 超限? ──→ 排队等待
-   │         │                                    ↓
-   │         │                              执行请求
-   │         │                                    ↓
-   │         └─ YES (自动模式) ──→ 渠道负载评估 ──→ 计算动态上限
-   │                                                        ↓
-   │                                                  超限? ──→ 排队等待
-   │                                                    ↓
-   │                                              限制并发计数
-   │                                              发送给渠道方
-   │                                                    ↓
-   └──────────────────────────────────────────────────→ 执行请求
-                                                            ↓
-                                                      完成 → 开放下一个请求
+运营设置 → 并发限制设置
+    ├─ 并发限制设置区块
+    └─ GPU监控与请求去重区块
 ```
 
 ---
 
-## 实现文件清单
+## 代码文件
 
-| 文件 | 类型 | 说明 |
-|------|------|------|
-| `model/concurrency.go` | 新增 | UserConcurrencyConfig 模型 |
-| `common/concurrency/limiter.go` | 新增 | 并发限制核心 |
-| `common/concurrency/load_evaluator.go` | 新增 | 负载评估算法 |
-| `common/ctxkey/key.go` | 修改 | 添加上下文键 |
-| `middleware/auth.go` | 修改 | Acquire/Release |
-| `controller/relay.go` | 修改 | defer Release |
-| `controller/user_concurrency.go` | 新增 | 配置 API |
-| `router/dashboard.go` | 修改 | 注册路由 |
-| `model/channel.go` | 修改 | 添加负载查询方法 |
-| `monitor/metric.go` | 修改 | 扩展指标收集 |
-| `web/default/src/pages/User/ConcurrencyConfig.js` | 新增 | 前端配置页 |
+```
+model/
+├── concurrency.go      # 用户并发配置模型
+└── request_cache.go    # 请求缓存模型 + 去重算法
+
+common/concurrency/
+├── limiter.go          # 并发限制核心实现
+└── load_evaluator.go   # 增强版负载评估算法
+
+monitor/gpu/
+└── vllm_monitor.go     # GPU KV Cache监控器
+
+middleware/
+└── request_dedup.go    # 请求去重中间件
+
+controller/
+└── user_concurrency.go # 配置API控制器
+
+model/
+└── option.go           # 配置项管理（InitOptionMap, updateOptionMap）
+
+web/default/src/
+├── components/
+│   └── OperationSetting.js  # 运营设置页面（并发限制配置）
+└── locales/
+    ├── zh/translation.json  # 中文翻译
+    └── en/translation.json  # 英文翻译
+```
 
 ---
 
 ## 数据库迁移
 
+表会在应用启动时通过 GORM AutoMigrate 自动创建：
+
 ```sql
-CREATE TABLE user_concurrency_config (
+CREATE TABLE IF NOT EXISTS user_concurrency_config (
     id INT PRIMARY KEY AUTO_INCREMENT,
     user_id INT NOT NULL UNIQUE,
     max_concurrent INT DEFAULT 5,
     enable_auto_limit BOOLEAN DEFAULT TRUE,
     status INT DEFAULT 1,
-    created_at BIGINT,
-    updated_at BIGINT,
+    created_time BIGINT,
+    updated_time BIGINT,
     INDEX idx_user_id (user_id)
+);
+
+CREATE TABLE IF NOT EXISTS request_cache (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    user_id INT,
+    fingerprint VARCHAR(64),
+    request_hash VARCHAR(64),
+    request_type VARCHAR(32),
+    model VARCHAR(128),
+    status INT DEFAULT 0,
+    request_body TEXT,
+    response_body LONGTEXT,
+    error_message TEXT,
+    created_time BIGINT,
+    completed_time BIGINT,
+    duplicate_count INT DEFAULT 0,
+    ttl INT DEFAULT 30,
+    INDEX idx_user_fingerprint (user_id, fingerprint),
+    INDEX idx_model (model)
 );
 ```
 
 ---
 
-## 验证方式
+## 使用示例
 
-1. **手动测试**:
-   ```bash
-   for i in {1..10}; do
-     curl -X POST http://localhost:3000/v1/chat/completions \
-       -H "Authorization: Bearer $TOKEN" \
-       -d '{"model":"gpt-3.5-turbo","messages":[{"role":"user","content":"test'$i'"}]}' &
-   done
-   ```
+### 启用功能
 
-2. **前端测试**:
-   - 设置最大并发=2，观察请求排队
-   - 开启自动限制，观察高负载时自动降低
+```bash
+# 启用并发限制
+export ENABLE_CONCURRENCY_LIMIT=true
+export USER_BASE_CONCURRENT_LIMIT=5
+
+# 启用GPU监控
+export ENABLE_GPU_MONITORING=true
+export VLLM_API_URL=http://localhost:8000
+export GPU_KV_CACHE_WARN=85.0
+export GPU_KV_CACHE_MAX=95.0
+
+# 启用请求去重
+export ENABLE_REQUEST_DEDUP=true
+export REQUEST_CACHE_TTL=30
+```
+
+### 测试去重
+
+```bash
+# 发送两次相同请求
+curl -X POST http://localhost:3000/v1/chat/completions \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"gpt-3.5-turbo","messages":[{"role":"user","content":"hello"}]}'
+
+# 第二次请求应该返回 X-Request-Dedup: hit 响应头
+```
+
+### 查看系统负载
+
+```bash
+curl http://localhost:3000/api/system/load
+# 返回:
+# {
+#   "success": true,
+#   "data": {
+#     "enabled": true,
+#     "load_level": 1,
+#     "response_time": 1500,
+#     "success_rate": 0.95,
+#     "gpu_kv_cache_usage": 45.5,
+#     "running_requests": 3
+#   }
+# }
+```
 
 ---
 
 ## 更新日志
 
-- **2026-04-29**: 初始方案设计
+### V2.1 (2026-04-30)
+
+- 新增前端运营设置页面配置界面
+- 支持通过 UI 配置并发限制参数
+- 支持通过 UI 配置 GPU 监控参数
+- 支持通过 UI 配置请求去重参数
+- 后端配置实时生效
+
+### V2.0 (2026-04-30)
+
+- 新增增强版负载评估算法 (4因子模型)
+- 新增 GPU KV Cache 监控
+- 新增请求去重功能
+- 新增并发滑动窗口趋势分析
+
+### V1.0 (2026-04-29)
+
+- 初始版本，实现基础并发限制功能

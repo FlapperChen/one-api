@@ -148,6 +148,36 @@ var EnableMetric = env.Bool("ENABLE_METRIC", false)
 var MetricQueueSize = env.Int("METRIC_QUEUE_SIZE", 10)
 var MetricSuccessRateThreshold = env.Float64("METRIC_SUCCESS_RATE_THRESHOLD", 0.8)
 var MetricSuccessChanSize = env.Int("METRIC_SUCCESS_CHAN_SIZE", 1024)
+
+// 并发限制配置
+var EnableConcurrencyLimit = env.Bool("ENABLE_CONCURRENCY_LIMIT", false)
+var EnableManualConcurrencyLimit = env.Bool("ENABLE_MANUAL_CONCURRENCY_LIMIT", false)
+var EnableAutoConcurrencyLimit = env.Bool("ENABLE_AUTO_CONCURRENCY_LIMIT", false)
+var UserBaseConcurrentLimit = env.Int("USER_BASE_CONCURRENT_LIMIT", 5)
+var ConcurrencyWaitTimeout = env.Int("CONCURRENCY_WAIT_TIMEOUT", 30) // 单位：秒
+var ConcurrencyCheckInterval = env.Int("CONCURRENCY_CHECK_INTERVAL", 100) // 单位：毫秒
+
+// 自动并发因子权重 (默认推荐值)
+var DurationFactorWeight = env.Int("DURATION_FACTOR_WEIGHT", 25)
+var ConcurrentFactorWeight = env.Int("CONCURRENT_FACTOR_WEIGHT", 25)
+var TrendFactorWeight = env.Int("TREND_FACTOR_WEIGHT", 20)
+var GPUFactorWeight = env.Int("GPU_FACTOR_WEIGHT", 30)
+
+// 因子阈值参数 (格式: 阈值:因子值,...)
+var DurationThresholds = env.String("DURATION_THRESHOLDS", "1000:1.0,3000:0.8,5000:0.5,10000:0.1")
+var GPUThresholds = env.String("GPU_THRESHOLDS", "50:1.0,70:0.8,85:0.5,95:0.1,100:0.1")
+
+// GPU 监控配置
+var EnableGPUMonitoring = env.Bool("ENABLE_GPU_MONITORING", false)
+var VLLMLogPath = env.String("VLLM_LOG_PATH", "/var/log/vllm")
+var VLLMAPIURL = env.String("VLLM_API_URL", "http://localhost:8000")
+var VLLMRefreshInterval = env.Int("VLLM_REFRESH_INTERVAL", 5) // 单位：秒
+var GPUKVCacheWarnThreshold = env.Float64("GPU_KV_CACHE_WARN", 85.0)
+var GPUKVCacheMaxThreshold = env.Float64("GPU_KV_CACHE_MAX", 95.0)
+
+// 请求去重配置
+var EnableRequestDeduplication = env.Bool("ENABLE_REQUEST_DEDUP", false)
+var RequestCacheTTL = env.Int("REQUEST_CACHE_TTL", 30) // 单位：秒
 var MetricFailChanSize = env.Int("METRIC_FAIL_CHAN_SIZE", 128)
 
 var InitialRootToken = os.Getenv("INITIAL_ROOT_TOKEN")

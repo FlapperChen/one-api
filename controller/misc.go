@@ -8,6 +8,7 @@ import (
 
 	"github.com/songquanpeng/one-api/common"
 	"github.com/songquanpeng/one-api/common/config"
+	"github.com/songquanpeng/one-api/common/concurrency"
 	"github.com/songquanpeng/one-api/common/i18n"
 	"github.com/songquanpeng/one-api/common/message"
 	"github.com/songquanpeng/one-api/model"
@@ -229,4 +230,70 @@ func ResetPassword(c *gin.Context) {
 		"data":    password,
 	})
 	return
+}
+
+// GetAutoConcurrencyLimit 获取当前自动并发限制信息
+func GetAutoConcurrencyLimit(c *gin.Context) {
+	evaluator := concurrency.GetLoadEvaluator()
+	if evaluator == nil {
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"message": "并发限制功能未启用",
+		})
+		return
+	}
+
+	metrics := evaluator.GetMetrics()
+	dynamicLimit := evaluator.CalculateDynamicLimit(config.UserBaseConcurrentLimit)
+	loadLevel := evaluator.GetLoadLevel()
+
+	// 计算各因子值
+	durationFactor := concurrency.CalculateDurationFactor(metrics.AvgRequestDuration)
+	concurrentFactor := concurrency.CalculateConcurrentFactor(metrics.CurrentConcurrent, config.UserBaseConcurrentLimit)
+	trendFactor := evaluator.CalculateTrendFactor()
+	gpuFactor := concurrency.CalculateGPUFactor(metrics.GPUKVCacheUsage)
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "",
+		"data": gin.H{
+			"dynamic_limit":      dynamicLimit,
+			"manual_limit":       config.UserBaseConcurrentLimit,
+			"actual_limit":       minDynamicLimit(dynamicLimit, config.UserBaseConcurrentLimit),
+			"load_level":         loadLevel,
+			"factors": gin.H{
+				"duration":   durationFactor,
+				"concurrent": concurrentFactor,
+				"trend":      trendFactor,
+				"gpu":        gpuFactor,
+			},
+			"weights": gin.H{
+				"duration":   config.DurationFactorWeight,
+				"concurrent": config.ConcurrentFactorWeight,
+				"trend":      config.TrendFactorWeight,
+				"gpu":        config.GPUFactorWeight,
+			},
+			"metrics": gin.H{
+				"avg_duration":      metrics.AvgRequestDuration,
+				"current_concurrent": metrics.CurrentConcurrent,
+				"gpu_usage":         metrics.GPUKVCacheUsage,
+				"success_rate":      metrics.SuccessRate,
+				"running_requests":  metrics.RunningRequests,
+			},
+			"enabled": gin.H{
+				"manual": config.EnableManualConcurrencyLimit,
+				"auto":   config.EnableAutoConcurrencyLimit,
+				"dedup":  config.EnableRequestDeduplication,
+				"gpu":    config.EnableGPUMonitoring,
+			},
+		},
+	})
+	return
+}
+
+func minDynamicLimit(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }

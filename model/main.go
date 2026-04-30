@@ -157,6 +157,12 @@ func migrateDB() error {
 	if err = DB.AutoMigrate(&Log{}); err != nil {
 		return err
 	}
+	if err = DB.AutoMigrate(&UserConcurrencyConfig{}); err != nil {
+		return err
+	}
+	if err = DB.AutoMigrate(&RequestCache{}); err != nil {
+		return err
+	}
 	if err = DB.AutoMigrate(&Channel{}); err != nil {
 		return err
 	}
