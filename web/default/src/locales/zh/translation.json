@@ -679,7 +679,7 @@
         "manual_limit_enable": "启用手动并发限制",
         "auto_limit_enable": "启用自动并发限制",
         "max_concurrent": "用户最大并发数",
-        "wait_timeout": "排队等待超时",
+        "wait_timeout": "请求超时",
         "check_interval": "检查间隔",
         "current_dynamic_limit": "当前自动限制最大并发数",
         "actual_limit": "实际生效限制",

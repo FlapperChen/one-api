@@ -1,6 +1,7 @@
 package concurrency
 
 import (
+	"math"
 	"sync"
 	"time"
 
@@ -92,18 +93,24 @@ func (e *LoadEvaluator) UpdateMetrics(metrics *EnhancedLoadMetrics) {
 	e.lastUpdateTime = time.Now().Unix()
 }
 
-// 获取系统负载等级
+// 获取系统负载等级（基于请求超时动态计算阈值）
 func (e *LoadEvaluator) GetLoadLevel() LoadLevel {
 	m := e.GetMetrics()
 
+	// 动态阈值 = 请求超时时间（毫秒）
+	maxTimeout := float64(config.ConcurrencyWaitTimeout) * 1000
+	if maxTimeout <= 0 {
+		maxTimeout = 30000 // 默认 30s
+	}
+
 	// 综合判断
-	if m.GPUKVCacheUsage >= config.GPUKVCacheMaxThreshold || m.ResponseTime > 5000 || m.SuccessRate < 0.7 {
+	if m.GPUKVCacheUsage >= config.GPUKVCacheMaxThreshold || m.ResponseTime > int64(maxTimeout*0.67) || m.SuccessRate < 0.7 {
 		return LoadLevelCritical
 	}
-	if m.GPUKVCacheUsage >= config.GPUKVCacheWarnThreshold || m.ResponseTime > 3000 || m.SuccessRate < 0.8 {
+	if m.GPUKVCacheUsage >= config.GPUKVCacheWarnThreshold || m.ResponseTime > int64(maxTimeout*0.33) || m.SuccessRate < 0.8 {
 		return LoadLevelHigh
 	}
-	if m.ResponseTime > 2000 || m.SuccessRate < 0.9 {
+	if m.ResponseTime > int64(maxTimeout*0.1) || m.SuccessRate < 0.9 {
 		return LoadLevelMedium
 	}
 	return LoadLevelLow
@@ -121,29 +128,29 @@ func (e *LoadEvaluator) UpdateConcurrentWindow(count int) {
 
 // 计算增强版动态并发限制
 // 考虑四个因素: 请求时长, 当前并发, 并发趋势, GPU资源
+// 使用配置的权重进行加权计算
 func (e *LoadEvaluator) CalculateDynamicLimit(baseLimit int) int {
 	metrics := e.GetMetrics()
-	limit := float64(baseLimit)
 
-	// 1. 请求时长因子 (权重 25%)
-	// 响应时间越长，应降低并发
+	// 从配置获取权重 (百分比)
+	durationWeight := float64(config.DurationFactorWeight) / 100.0
+	concurrentWeight := float64(config.ConcurrentFactorWeight) / 100.0
+	trendWeight := float64(config.TrendFactorWeight) / 100.0
+	gpuWeight := float64(config.GPUFactorWeight) / 100.0
+
+	// 计算各因子值 (0-1)
 	durationFactor := CalculateDurationFactor(metrics.AvgRequestDuration)
-	limit *= durationFactor
-
-	// 2. 当前并发因子 (权重 25%)
-	// 当前并发越高，降低后续并发
 	concurrentFactor := CalculateConcurrentFactor(metrics.CurrentConcurrent, baseLimit)
-	limit *= concurrentFactor
-
-	// 3. 并发趋势因子 (权重 20%)
-	// 并发快速增长时，降低限制
 	trendFactor := e.CalculateTrendFactor()
-	limit *= trendFactor
-
-	// 4. GPU KV Cache 因子 (权重 30%)
-	// KV Cache 使用率越高，应降低并发
 	gpuFactor := CalculateGPUFactor(metrics.GPUKVCacheUsage)
-	limit *= gpuFactor
+
+	// 加权计算: limit = baseLimit × (d^dW × c^cW × t^tW × g^gW)
+	// 其中 dW, cW, tW, gW 是权重百分比
+	limit := float64(baseLimit)
+	limit *= math.Pow(durationFactor, durationWeight)
+	limit *= math.Pow(concurrentFactor, concurrentWeight)
+	limit *= math.Pow(trendFactor, trendWeight)
+	limit *= math.Pow(gpuFactor, gpuWeight)
 
 	// 确保最小值为1
 	if limit < 1 {
@@ -154,18 +161,25 @@ func (e *LoadEvaluator) CalculateDynamicLimit(baseLimit int) int {
 }
 
 // 请求时长因子
-// < 1s: 1.0, 1-3s: 0.8, 3-5s: 0.5, 5-10s: 0.3, > 10s: 0.1
+// 根据请求超时时间动态计算阈值（单位：毫秒）
+// < 超时×10%: 1.0, < 超时×33%: 0.8, < 超时×67%: 0.5, >= 超时×67%: 0.1
 func CalculateDurationFactor(avgDurationMs int64) float64 {
+	// 最大阈值 = 请求超时时间（秒转毫秒）
+	maxThreshold := float64(config.ConcurrencyWaitTimeout) * 1000
+	if maxThreshold <= 0 {
+		maxThreshold = 30000 // 默认 30s
+	}
+
+	ratio := float64(avgDurationMs) / maxThreshold
+
 	switch {
-	case avgDurationMs < 1000:
+	case ratio < 0.1: // < 10%
 		return 1.0
-	case avgDurationMs < 3000:
+	case ratio < 0.33: // 10-33%
 		return 0.8
-	case avgDurationMs < 5000:
+	case ratio < 0.67: // 33-67%
 		return 0.5
-	case avgDurationMs < 10000:
-		return 0.3
-	default:
+	default: // >= 67%
 		return 0.1
 	}
 }
@@ -191,6 +205,7 @@ func CalculateConcurrentFactor(current, baseLimit int) float64 {
 }
 
 // 并发趋势因子
+// 窗口大小基于请求超时时间动态计算（超时时间的 1/3）
 func (e *LoadEvaluator) CalculateTrendFactor() float64 {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
@@ -198,35 +213,42 @@ func (e *LoadEvaluator) CalculateTrendFactor() float64 {
 	window := e.concurrentWindow
 	windowLen := len(window)
 
-	if windowLen < 10 {
+	// 动态窗口大小 = 请求超时的 1/3（秒）
+	windowSize := config.ConcurrencyWaitTimeout / 3
+	if windowSize < 5 {
+		windowSize = 5
+	}
+	if windowSize > 30 {
+		windowSize = 30 // 最大 30 秒
+	}
+
+	if windowLen < windowSize {
 		return 1.0
 	}
 
-	// 计算最近10秒和之前的平均值
+	// 计算最近 windowSize 秒和之前 windowSize 秒的平均值
 	var recentSum, oldSum int
-	recentCount := 10
-	oldCount := 10
 
-	if e.windowIndex >= recentCount {
-		for i := 0; i < recentCount; i++ {
-			idx := (e.windowIndex - recentCount + i + windowLen) % windowLen
+	if e.windowIndex >= windowSize {
+		for i := 0; i < windowSize; i++ {
+			idx := (e.windowIndex - windowSize + i + windowLen) % windowLen
 			recentSum += window[idx]
 		}
 	} else {
-		recentSum = window[e.windowIndex] * recentCount
+		recentSum = window[e.windowIndex] * windowSize
 	}
 
-	if e.windowIndex >= recentCount+oldCount {
-		for i := 0; i < oldCount; i++ {
-			idx := (e.windowIndex - recentCount - oldCount + i + windowLen) % windowLen
+	if e.windowIndex >= windowSize*2 {
+		for i := 0; i < windowSize; i++ {
+			idx := (e.windowIndex - windowSize*2 + i + windowLen) % windowLen
 			oldSum += window[idx]
 		}
 	} else {
 		oldSum = recentSum // 数据不足时使用相同值
 	}
 
-	avgRecent := float64(recentSum) / float64(recentCount)
-	avgOld := float64(oldSum) / float64(max(oldCount, 1))
+	avgRecent := float64(recentSum) / float64(windowSize)
+	avgOld := float64(oldSum) / float64(max(windowSize, 1))
 
 	if avgOld == 0 {
 		return 1.0

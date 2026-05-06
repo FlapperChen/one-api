@@ -681,7 +681,7 @@
         "manual_limit_enable": "Enable Manual Concurrency Limit",
         "auto_limit_enable": "Enable Auto Concurrency Limit",
         "max_concurrent": "Max Concurrent",
-        "wait_timeout": "Wait Timeout",
+        "wait_timeout": "Request Timeout",
         "check_interval": "Check Interval",
         "current_dynamic_limit": "Current Dynamic Limit",
         "actual_limit": "Actual Limit",

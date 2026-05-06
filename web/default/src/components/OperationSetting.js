@@ -288,8 +288,10 @@ const OperationSetting = () => {
     if (name.endsWith('Enabled')) {
       // Checkbox 的 value 是静态的，用 checked 代替
       const newValue = checked !== undefined ? String(checked) : value;
-      console.log('Input change (checkbox):', name, '=', newValue);  // 调试
       await updateOption(name, newValue);
+    } else if (name.includes('FactorWeight') || name.includes('Thresholds')) {
+      // 因子权重和阈值配置自动保存
+      await updateOption(name, value);
     } else {
       setInputs((inputs) => ({ ...inputs, [name]: value }));
     }
@@ -536,7 +538,7 @@ const OperationSetting = () => {
 
           <Divider />
           <Header as='h3'>{t('setting.operation.auto_channel_select.title')}</Header>
-          <Form.Group widths={3}>
+          <Form.Group widths={3} style={{ alignItems: 'flex-end' }}>
             <Form.Select
               label={t('setting.operation.auto_channel_select.group')}
               options={availableGroups}
@@ -559,6 +561,7 @@ const OperationSetting = () => {
             <Form.Button
               onClick={addModelToConfig}
               disabled={!selectedGroup || selectedModels.length === 0}
+              style={{ height: '38px' }}
             >
               {t('setting.operation.auto_channel_select.add')}
             </Form.Button>
@@ -794,45 +797,33 @@ const OperationSetting = () => {
               />
             </Form.Group>
             {inputs.EnableGPUMonitoring === 'true' && (
-              <>
-                <Form.Group widths={2} style={{ marginTop: '12px' }}>
-                  <Form.Input
-                    label={t('setting.operation.concurrency.vllm_api_url')}
-                    name='VLLMAPIURL'
-                    onChange={handleInputChange}
-                    value={inputs.VLLMAPIURL}
-                    type='url'
-                  />
-                  <Form.Input
-                    label={t('setting.operation.concurrency.cache_ttl')}
-                    name='RequestCacheTTL'
-                    onChange={handleInputChange}
-                    value={inputs.RequestCacheTTL}
-                    type='number'
-                    min='5'
-                  />
-                </Form.Group>
-                <Form.Group widths={2}>
-                  <Form.Input
-                    label={t('setting.operation.concurrency.gpu_kv_warn')}
-                    name='GPUKVCacheWarn'
-                    onChange={handleInputChange}
-                    value={inputs.GPUKVCacheWarn}
-                    type='number'
-                    min='0'
-                    max='100'
-                  />
-                  <Form.Input
-                    label={t('setting.operation.concurrency.gpu_kv_max')}
-                    name='GPUKVCacheMax'
-                    onChange={handleInputChange}
-                    value={inputs.GPUKVCacheMax}
-                    type='number'
-                    min='0'
-                    max='100'
-                  />
-                </Form.Group>
-              </>
+              <Form.Group widths={3} style={{ marginTop: '12px' }}>
+                <Form.Input
+                  label={t('setting.operation.concurrency.vllm_api_url')}
+                  name='VLLMAPIURL'
+                  onChange={handleInputChange}
+                  value={inputs.VLLMAPIURL}
+                  type='url'
+                />
+                <Form.Input
+                  label={t('setting.operation.concurrency.gpu_kv_warn')}
+                  name='GPUKVCacheWarn'
+                  onChange={handleInputChange}
+                  value={inputs.GPUKVCacheWarn}
+                  type='number'
+                  min='0'
+                  max='100'
+                />
+                <Form.Input
+                  label={t('setting.operation.concurrency.gpu_kv_max')}
+                  name='GPUKVCacheMax'
+                  onChange={handleInputChange}
+                  value={inputs.GPUKVCacheMax}
+                  type='number'
+                  min='0'
+                  max='100'
+                />
+              </Form.Group>
             )}
           </div>
 

@@ -78,7 +78,9 @@
       "Bash(curl -s localhost:3009/api/system/auto-concurrency-limit)",
       "Bash(curl --noproxy '*' -s localhost:3009/api/system/auto-concurrency-limit)",
       "Bash(curl --noproxy '*' -s localhost:3009/api/option/)",
-      "Bash(curl --noproxy '*' -s http://10.41.101.220:8000/metrics)"
+      "Bash(curl --noproxy '*' -s http://10.41.101.220:8000/metrics)",
+      "Bash(curl --noproxy '*' -s localhost:3009/api/option/ -H \"Authorization: Bearer 5f9373333afe4177a5b8c6acd0cd5b0b\")",
+      "Bash(curl --noproxy '*' -s localhost:3009/api/option/ -H \"Authorization: Bearer 5f9373333afe4177a5b8c6acd0cd5b0b\" -X PUT -H \"Content-Type: application/json\" -d '{\"key\":\"ConcurrencyWaitTimeout\",\"value\":\"30\"}')"
     ],
     "additionalDirectories": [
       "/tmp"
