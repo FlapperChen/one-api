@@ -298,8 +298,9 @@ func (e *LoadEvaluator) RefreshMetrics() {
 	// 获取GPU指标
 	var gpuKVCacheUsage float64
 	var runningRequests int
-	if config.EnableGPUMonitoring {
+	if gpu.IsEnabled() {
 		vllmMonitor := gpu.GetVLLMMonitor()
+		vllmMonitor.Refresh() // 刷新 GPU 数据
 		gpuKVCacheUsage = vllmMonitor.GetGPUKVCacheUsage()
 		runningRequests = vllmMonitor.GetRunningRequests()
 	}

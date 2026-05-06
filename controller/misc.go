@@ -243,6 +243,8 @@ func GetAutoConcurrencyLimit(c *gin.Context) {
 		return
 	}
 
+	// 刷新指标（获取最新的 GPU 数据）
+	evaluator.RefreshMetrics()
 	metrics := evaluator.GetMetrics()
 	dynamicLimit := evaluator.CalculateDynamicLimit(config.UserBaseConcurrentLimit)
 	loadLevel := evaluator.GetLoadLevel()
@@ -252,6 +254,12 @@ func GetAutoConcurrencyLimit(c *gin.Context) {
 	concurrentFactor := concurrency.CalculateConcurrentFactor(metrics.CurrentConcurrent, config.UserBaseConcurrentLimit)
 	trendFactor := evaluator.CalculateTrendFactor()
 	gpuFactor := concurrency.CalculateGPUFactor(metrics.GPUKVCacheUsage)
+
+	// 从 OptionMap 获取最新的配置值
+	gpuEnabled := config.OptionMap["EnableGPUMonitoring"] == "true"
+	dedupEnabled := config.OptionMap["EnableRequestDeduplication"] == "true"
+	manualEnabled := config.OptionMap["EnableManualConcurrencyLimit"] == "true"
+	autoEnabled := config.OptionMap["EnableAutoConcurrencyLimit"] == "true"
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
@@ -281,10 +289,10 @@ func GetAutoConcurrencyLimit(c *gin.Context) {
 				"running_requests":  metrics.RunningRequests,
 			},
 			"enabled": gin.H{
-				"manual": config.EnableManualConcurrencyLimit,
-				"auto":   config.EnableAutoConcurrencyLimit,
-				"dedup":  config.EnableRequestDeduplication,
-				"gpu":    config.EnableGPUMonitoring,
+				"manual": manualEnabled,
+				"auto":   autoEnabled,
+				"dedup":  dedupEnabled,
+				"gpu":    gpuEnabled,
 			},
 		},
 	})

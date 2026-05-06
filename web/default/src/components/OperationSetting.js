@@ -146,7 +146,12 @@ const OperationSetting = () => {
           loadLevel: data.load_level || 0,
           factors: data.factors || { duration: 1.0, concurrent: 1.0, trend: 1.0, gpu: 1.0 },
           weights: data.weights || { duration: 25, concurrent: 25, trend: 20, gpu: 30 },
-          metrics: data.metrics || { avgDuration: 0, currentConcurrent: 0, gpuUsage: 0 },
+          metrics: {
+            avgDuration: data.metrics?.avg_duration || 0,
+            currentConcurrent: data.metrics?.current_concurrent || 0,
+            gpuUsage: data.metrics?.gpu_usage || 0,
+            runningRequests: data.metrics?.running_requests || 0,
+          },
           enabled: data.enabled || { manual: false, auto: false, dedup: true, gpu: false },
         });
       }
@@ -631,7 +636,7 @@ const OperationSetting = () => {
             </p>
             <Form.Group widths='equal'>
               <Form.Input
-                label={t('setting.operation.concurrency.cache_ttl')}
+                label={t('setting.operation.concurrency.cache_ttl') + ' (s)'}
                 name='RequestCacheTTL'
                 onChange={handleInputChange}
                 value={inputs.RequestCacheTTL}
@@ -662,7 +667,7 @@ const OperationSetting = () => {
                 max='100'
               />
               <Form.Input
-                label={t('setting.operation.concurrency.wait_timeout')}
+                label={t('setting.operation.concurrency.wait_timeout') + ' (s)'}
                 name='ConcurrencyWaitTimeout'
                 onChange={handleInputChange}
                 value={inputs.ConcurrencyWaitTimeout}
@@ -670,7 +675,7 @@ const OperationSetting = () => {
                 min='1'
               />
               <Form.Input
-                label={t('setting.operation.concurrency.check_interval')}
+                label={t('setting.operation.concurrency.check_interval') + ' (ms)'}
                 name='ConcurrencyCheckInterval'
                 onChange={handleInputChange}
                 value={inputs.ConcurrencyCheckInterval}
@@ -712,21 +717,24 @@ const OperationSetting = () => {
                       <span style={{ fontWeight: 'bold' }}>{autoStatus.metrics.gpuUsage?.toFixed(1) || 0}%</span>
                     </div>
                   </div>
-                  {/* 因子值显示 */}
-                  <div style={{ marginTop: '10px', display: 'flex', gap: '15px', flexWrap: 'wrap', fontSize: '12px' }}>
-                    <span>{t('setting.operation.concurrency.factor_duration')}: <b>{autoStatus.factors.duration?.toFixed(2)}</b></span>
-                    <span>{t('setting.operation.concurrency.factor_concurrent')}: <b>{autoStatus.factors.concurrent?.toFixed(2)}</b></span>
-                    <span>{t('setting.operation.concurrency.factor_trend')}: <b>{autoStatus.factors.trend?.toFixed(2)}</b></span>
-                    <span>{t('setting.operation.concurrency.factor_gpu')}: <b>{autoStatus.factors.gpu?.toFixed(2)}</b></span>
+                  {/* 因子计算值显示 */}
+                  <div style={{ marginTop: '10px', padding: '8px', backgroundColor: '#f0f0f0', borderRadius: '4px', fontSize: '12px' }}>
+                    <b style={{ display: 'block', marginBottom: '6px', color: '#666' }}>当前因子计算值:</b>
+                    <div style={{ display: 'flex', gap: '15px', flexWrap: 'wrap' }}>
+                      <span>请求时长: <b>{autoStatus.factors.duration?.toFixed(2)}</b></span>
+                      <span>当前并发: <b>{autoStatus.factors.concurrent?.toFixed(2)}</b></span>
+                      <span>并发趋势: <b>{autoStatus.factors.trend?.toFixed(2)}</b></span>
+                      <span>GPU: <b>{autoStatus.factors.gpu?.toFixed(2)}</b></span>
+                    </div>
                   </div>
                 </div>
 
                 {/* 因子权重配置 */}
                 <div style={{ marginTop: '15px' }}>
-                  <b style={{ display: 'block', marginBottom: '10px' }}>{t('setting.operation.concurrency.factor_weights')}</b>
+                  <b style={{ display: 'block', marginBottom: '10px' }}>{t('setting.operation.concurrency.factor_weights')} <small style={{ fontWeight: 'normal', color: '#666' }}>(权重百分比)</small></b>
                   <Form.Group widths={4}>
                     <Form.Input
-                      label={t('setting.operation.concurrency.factor_duration')}
+                      label={t('setting.operation.concurrency.factor_duration') + ' (%)'}
                       name='DurationFactorWeight'
                       onChange={handleInputChange}
                       value={inputs.DurationFactorWeight}
@@ -735,7 +743,7 @@ const OperationSetting = () => {
                       max='100'
                     />
                     <Form.Input
-                      label={t('setting.operation.concurrency.factor_concurrent')}
+                      label={t('setting.operation.concurrency.factor_concurrent') + ' (%)'}
                       name='ConcurrentFactorWeight'
                       onChange={handleInputChange}
                       value={inputs.ConcurrentFactorWeight}
@@ -744,7 +752,7 @@ const OperationSetting = () => {
                       max='100'
                     />
                     <Form.Input
-                      label={t('setting.operation.concurrency.factor_trend')}
+                      label={t('setting.operation.concurrency.factor_trend') + ' (%)'}
                       name='TrendFactorWeight'
                       onChange={handleInputChange}
                       value={inputs.TrendFactorWeight}
@@ -753,7 +761,7 @@ const OperationSetting = () => {
                       max='100'
                     />
                     <Form.Input
-                      label={t('setting.operation.concurrency.factor_gpu')}
+                      label={t('setting.operation.concurrency.factor_gpu') + ' (%)'}
                       name='GPUFactorWeight'
                       onChange={handleInputChange}
                       value={inputs.GPUFactorWeight}

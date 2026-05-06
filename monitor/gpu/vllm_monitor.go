@@ -29,19 +29,36 @@ type VLLMMetrics struct {
 
 // GPU 监控器
 type VLLMMonitor struct {
-	mu            sync.RWMutex
-	metrics       *VLLMMetrics
-	logPath       string
-	apiURL        string
-	refreshInterval time.Duration
-	stopChan      chan struct{}
-	enabled       bool
+	mu               sync.RWMutex
+	metrics          *VLLMMetrics
+	logPath          string
+	apiURL           string
+	refreshInterval  time.Duration
+	stopChan         chan struct{}
+	enabled          bool
 }
 
 var (
 	monitor     *VLLMMonitor
 	monitorOnce sync.Once
 )
+
+// GetAPIURL 获取当前配置的 API URL（每次从 OptionMap 读取）
+func GetAPIURL() string {
+	vllmAPIURL := config.OptionMap["VLLMAPIURL"]
+	if vllmAPIURL == "" {
+		vllmAPIURL = config.VLLMAPIURL
+	}
+	return vllmAPIURL
+}
+
+// IsEnabled 检查 GPU 监控是否启用
+func IsEnabled() bool {
+	if val, ok := config.OptionMap["EnableGPUMonitoring"]; ok {
+		return val == "true"
+	}
+	return config.EnableGPUMonitoring
+}
 
 // VLLM 日志正则
 var (
@@ -53,10 +70,16 @@ var (
 // 获取监控器单例
 func GetVLLMMonitor() *VLLMMonitor {
 	monitorOnce.Do(func() {
+		// 从 OptionMap 读取配置（前端保存的值）
+		vllmAPIURL := config.OptionMap["VLLMAPIURL"]
+		if vllmAPIURL == "" {
+			vllmAPIURL = config.VLLMAPIURL // 降级到环境变量
+		}
+
 		monitor = &VLLMMonitor{
 			metrics: &VLLMMetrics{},
 			logPath: config.VLLMLogPath,
-			apiURL:  config.VLLMAPIURL,
+			apiURL:  vllmAPIURL,
 			refreshInterval: time.Duration(config.VLLMRefreshInterval) * time.Second,
 			stopChan:  make(chan struct{}),
 			enabled:   config.EnableGPUMonitoring,
@@ -100,10 +123,19 @@ func (m *VLLMMonitor) refreshLoop() {
 	}
 }
 
-// Refresh 刷新指标
+// Refresh 刷新指标（每次从 OptionMap 获取最新配置）
 func (m *VLLMMonitor) Refresh() {
+	// 每次刷新时从 OptionMap 获取最新配置
+	apiURL := GetAPIURL()
+	m.apiURL = apiURL
+	m.enabled = IsEnabled()
+
+	if !m.enabled {
+		return
+	}
+
 	// 优先从 API 获取
-	if m.apiURL != "" {
+	if apiURL != "" {
 		if err := m.fetchFromAPI(); err == nil {
 			return
 		}
@@ -135,47 +167,29 @@ func (m *VLLMMonitor) fetchFromAPI() error {
 	for scanner.Scan() {
 		line := scanner.Text()
 
-		// 解析 vllm:avg_prompt_throughput
-		if strings.Contains(line, "vllm:avg_prompt_throughput") {
-			if parts := strings.Split(line, " "); len(parts) == 2 {
-				if v, err := strconv.ParseFloat(parts[1], 64); err == nil {
-					metrics.PromptThroughput = v
-				}
-			}
-		}
-
-		// 解析 vllm:avg_generation_throughput
-		if strings.Contains(line, "vllm:avg_generation_throughput") {
-			if parts := strings.Split(line, " "); len(parts) == 2 {
-				if v, err := strconv.ParseFloat(parts[1], 64); err == nil {
-					metrics.GenerationThroughput = v
-				}
-			}
-		}
-
-		// 解析 vllm:num_running_requests
-		if strings.Contains(line, "vllm:num_running_requests") {
-			if parts := strings.Split(line, " "); len(parts) == 2 {
+		// 解析 vllm:num_requests_running
+		if strings.Contains(line, "vllm:num_requests_running") {
+			if parts := strings.Split(line, " "); len(parts) >= 2 {
 				if v, err := strconv.Atoi(strings.TrimSpace(parts[1])); err == nil {
 					metrics.RunningRequests = v
 				}
 			}
 		}
 
-		// 解析 vllm:num_waiting_requests
-		if strings.Contains(line, "vllm:num_waiting_requests") {
-			if parts := strings.Split(line, " "); len(parts) == 2 {
+		// 解析 vllm:num_requests_waiting
+		if strings.Contains(line, "vllm:num_requests_waiting") {
+			if parts := strings.Split(line, " "); len(parts) >= 2 {
 				if v, err := strconv.Atoi(strings.TrimSpace(parts[1])); err == nil {
 					metrics.WaitingRequests = v
 				}
 			}
 		}
 
-		// 解析 gpu_kv_cache_usage (自定义指标)
-		if strings.Contains(line, "gpu_kv_cache_usage") {
-			if parts := strings.Split(line, " "); len(parts) == 2 {
+		// 解析 vllm:kv_cache_usage_perc (vLLM 标准指标，值为 0-1)
+		if strings.Contains(line, "vllm:kv_cache_usage_perc") {
+			if parts := strings.Split(line, " "); len(parts) >= 2 {
 				if v, err := strconv.ParseFloat(parts[1], 64); err == nil {
-					metrics.GPUKVCacheUsage = v
+					metrics.GPUKVCacheUsage = v * 100 // 转换为百分比
 				}
 			}
 		}
