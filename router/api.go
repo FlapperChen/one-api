@@ -80,7 +80,11 @@ func SetApiRouter(router *gin.Engine) {
 		// 系统负载信息
 		apiRouter.GET("/system/load", controller.GetSystemLoadInfo)
 		// 自动并发限制信息
-		apiRouter.GET("/system/auto-concurrency-limit", controller.GetAutoConcurrencyLimit)
+		apiRouter.GET("/system/auto-concurrency-limit", middleware.UserAuth(), controller.GetAutoConcurrencyLimit)
+		// 并发计数调试
+		apiRouter.GET("/system/concurrency-debug", middleware.AdminAuth(), controller.GetConcurrencyDebug)
+		// 重置并发配置为默认值
+		apiRouter.POST("/system/concurrency-reset", middleware.AdminAuth(), controller.ResetConcurrencyConfig)
 		channelRoute := apiRouter.Group("/channel")
 		channelRoute.Use(middleware.AdminAuth())
 		{

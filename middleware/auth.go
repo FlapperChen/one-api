@@ -12,6 +12,7 @@ import (
 	"github.com/songquanpeng/one-api/common/concurrency"
 	"github.com/songquanpeng/one-api/common/config"
 	"github.com/songquanpeng/one-api/common/ctxkey"
+	"github.com/songquanpeng/one-api/common/logger"
 	"github.com/songquanpeng/one-api/common/network"
 	"github.com/songquanpeng/one-api/model"
 )
@@ -138,9 +139,11 @@ func TokenAuth() func(c *gin.Context) {
 		c.Set(ctxkey.TokenName, token.Name)
 
 		// Check and acquire concurrency limit
+		logger.Infof(c.Request.Context(), "[TokenAuth] 用户 %d 正在获取并发许可", token.UserId)
 		limiter := concurrency.GetLimiter()
+		logger.Infof(c.Request.Context(), "[TokenAuth] limiter: %v", limiter)
 		if limiter != nil {
-			if err := limiter.Acquire(ctx, token.UserId); err != nil {
+			if err := limiter.Acquire(c.Request.Context(), token.UserId); err != nil {
 				abortWithMessage(c, http.StatusTooManyRequests, err.Error())
 				return
 			}

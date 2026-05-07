@@ -3,31 +3,71 @@ package concurrency
 import (
 	"context"
 	"errors"
-	"fmt"
-	"strconv"
 	"sync"
 	"time"
 
-	"github.com/go-redis/redis/v8"
-	"github.com/songquanpeng/one-api/common"
 	"github.com/songquanpeng/one-api/common/config"
 	"github.com/songquanpeng/one-api/common/logger"
 	"github.com/songquanpeng/one-api/model"
 )
 
 var (
-	ErrWaitTimeout        = errors.New("请求排队超时，请稍后再试")
-	ErrConcurrencyLimit   = errors.New("并发请求数超限")
-	ErrRedisNotAvailable  = errors.New("Redis服务不可用")
+	ErrWaitTimeout       = errors.New("请求排队超时，请稍后再试")
+	ErrConcurrencyLimit  = errors.New("并发请求数超限")
 )
+
+// 内存并发计数器
+type inMemoryCounter struct {
+	mu     sync.RWMutex
+	counts map[int]int // userId -> current concurrent count
+}
+
+var counter = &inMemoryCounter{
+	counts: make(map[int]int),
+}
+
+// Incr 增加用户并发计数
+func (c *inMemoryCounter) Incr(userId int) int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.counts[userId]++
+	return c.counts[userId]
+}
+
+// Decr 减少用户并发计数
+func (c *inMemoryCounter) Decr(userId int) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.counts[userId]--
+	if c.counts[userId] <= 0 {
+		delete(c.counts, userId)
+	}
+}
+
+// Get 获取用户当前并发数
+func (c *inMemoryCounter) Get(userId int) int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.counts[userId]
+}
+
+// GetAll 获取所有用户并发数
+func (c *inMemoryCounter) GetAll() map[int]int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	result := make(map[int]int, len(c.counts))
+	for k, v := range c.counts {
+		result[k] = v
+	}
+	return result
+}
 
 // 并发限制器
 type UserConcurrencyLimiter struct {
-	redis         redis.Cmdable
 	waitTimeout   time.Duration
 	checkInterval time.Duration
 	loadEvaluator *LoadEvaluator
-	fallbackLimit int // Redis不可用时的降级限制
+	fallbackLimit int
 }
 
 var (
@@ -39,11 +79,10 @@ var (
 func InitLimiter() *UserConcurrencyLimiter {
 	limiterOnce.Do(func() {
 		limiter = &UserConcurrencyLimiter{
-			redis:         common.RDB,
-			waitTimeout:   time.Duration(config.ConcurrencyWaitTimeout) * time.Second,
-			checkInterval: time.Duration(config.ConcurrencyCheckInterval) * time.Millisecond,
+			waitTimeout:   time.Duration(getConfigInt("ConcurrencyWaitTimeout", config.ConcurrencyWaitTimeout)) * time.Second,
+			checkInterval: time.Duration(getConfigInt("ConcurrencyCheckInterval", config.ConcurrencyCheckInterval)) * time.Millisecond,
 			loadEvaluator: GetLoadEvaluator(),
-			fallbackLimit: config.UserBaseConcurrentLimit,
+			fallbackLimit: getConfigInt("UserBaseConcurrentLimit", config.UserBaseConcurrentLimit),
 		}
 	})
 	return limiter
@@ -54,70 +93,29 @@ func GetLimiter() *UserConcurrencyLimiter {
 	return limiter
 }
 
-// 获取Redis key
-func getConcurrentKey(userId int) string {
-	return fmt.Sprintf("concurrent:%d", userId)
+// isGlobalConcurrencyEnabled 检查全局并发限制是否启用
+func isGlobalConcurrencyEnabled() bool {
+	if val, ok := config.OptionMap["EnableManualConcurrencyLimit"]; ok {
+		return val == "true"
+	}
+	return config.EnableConcurrencyLimit
 }
 
-// 获取当前并发数
+// 获取用户当前并发数
 func (l *UserConcurrencyLimiter) GetCurrentConcurrent(userId int) int {
-	if l.redis == nil {
-		return 0
-	}
-	key := getConcurrentKey(userId)
-	val, err := l.redis.Get(context.Background(), key).Int()
-	if err != nil {
-		logger.Warnf(nil, "获取用户并发数失败: %v", err)
-		return 0
-	}
-	return val
+	return counter.Get(userId)
 }
 
-// 尝试增加并发计数
-func (l *UserConcurrencyLimiter) tryIncrement(userId int) bool {
-	if l.redis == nil {
-		return true
-	}
-	key := getConcurrentKey(userId)
-	success, err := l.redis.SetNX(context.Background(), key, 1, 0).Result()
-	if err != nil {
-		logger.Warnf(nil, "Redis SetNX失败: %v", err)
-		return true // Redis失败时放行
-	}
-	if success {
-		return true // 首次设置成功
-	}
-	// 已存在，增加计数
-	_, err = l.redis.Incr(context.Background(), key).Result()
-	if err != nil {
-		logger.Warnf(nil, "Redis Incr失败: %v", err)
-		return true
-	}
-	return true
-}
-
-// 减少并发计数
-func (l *UserConcurrencyLimiter) Decrement(userId int) {
-	if l.redis == nil {
-		return
-	}
-	key := getConcurrentKey(userId)
-	val, err := l.redis.Decr(context.Background(), key).Result()
-	if err != nil {
-		logger.Warnf(nil, "Redis Decr失败: %v", err)
-		return
-	}
-	// 如果计数小于等于0，删除key
-	if val <= 0 {
-		l.redis.Del(context.Background(), key)
-	}
+// 获取所有用户的并发统计
+func (l *UserConcurrencyLimiter) GetAllStats() (map[int]int, error) {
+	return counter.GetAll(), nil
 }
 
 // 获取用户的并发限制
 func (l *UserConcurrencyLimiter) getUserLimit(userId int) int {
 	userConfig, err := model.GetOrCreateUserConcurrencyConfig(userId)
 	if err != nil || userConfig == nil {
-		return config.UserBaseConcurrentLimit
+		return getConfigInt("UserBaseConcurrentLimit", config.UserBaseConcurrentLimit)
 	}
 	return userConfig.MaxConcurrent
 }
@@ -126,25 +124,18 @@ func (l *UserConcurrencyLimiter) getUserLimit(userId int) int {
 func (l *UserConcurrencyLimiter) isAutoLimitEnabled(userId int) bool {
 	config, err := model.GetUserConcurrencyConfig(userId)
 	if err != nil || config == nil {
-		return true // 默认启用
+		return true
 	}
 	return config.EnableAutoLimit
 }
 
 // 计算动态限制
 func (l *UserConcurrencyLimiter) calculateLimit(userId int) int {
-	// 刷新负载指标
 	l.loadEvaluator.RefreshMetrics()
-
-	// 获取基础限制
 	baseLimit := l.getUserLimit(userId)
-
-	// 如果未启用自动限制，直接返回基础限制
 	if !l.isAutoLimitEnabled(userId) {
 		return baseLimit
 	}
-
-	// 使用负载评估器计算动态限制
 	return l.loadEvaluator.CalculateDynamicLimit(baseLimit)
 }
 
@@ -153,43 +144,45 @@ func (l *UserConcurrencyLimiter) GetLimit(userId int) int {
 	return l.calculateLimit(userId)
 }
 
-// 获取用户配置（用于日志和调试）
+// 获取用户配置
 func (l *UserConcurrencyLimiter) GetUserConfig(userId int) map[string]interface{} {
 	config, err := model.GetUserConcurrencyConfig(userId)
 	if err != nil || config == nil {
 		return map[string]interface{}{
-			"user_id":          userId,
-			"max_concurrent":   5,
+			"user_id":           userId,
+			"max_concurrent":    5,
 			"enable_auto_limit": true,
-			"status":           1,
-			"current":          l.GetCurrentConcurrent(userId),
-			"dynamic_limit":    l.calculateLimit(userId),
+			"status":            1,
+			"current":           counter.Get(userId),
+			"dynamic_limit":     l.calculateLimit(userId),
 		}
 	}
 	return map[string]interface{}{
-		"user_id":          config.UserId,
-		"max_concurrent":   config.MaxConcurrent,
+		"user_id":           config.UserId,
+		"max_concurrent":    config.MaxConcurrent,
 		"enable_auto_limit": config.EnableAutoLimit,
-		"status":           config.Status,
-		"current":          l.GetCurrentConcurrent(userId),
-		"dynamic_limit":    l.calculateLimit(userId),
+		"status":            config.Status,
+		"current":           counter.Get(userId),
+		"dynamic_limit":     l.calculateLimit(userId),
 	}
 }
 
 // Acquire 获取并发许可
-// 如果当前并发数已达上限，会等待直到获得许可或超时
 func (l *UserConcurrencyLimiter) Acquire(ctx context.Context, userId int) error {
-	// 检查是否启用
-	if !config.EnableConcurrencyLimit {
+	logger.Infof(nil, "Acquire: 用户 %d 开始获取许可", userId)
+
+	if !isGlobalConcurrencyEnabled() {
+		logger.Warnf(nil, "Acquire: 全局并发未启用，跳过")
 		return nil
 	}
 
-	// 检查用户是否被暂停
 	if !model.IsUserConcurrencyEnabled(userId) {
+		logger.Warnf(nil, "Acquire: 用户 %d 被禁用", userId)
 		return nil
 	}
 
-	// 计算限制
+	logger.Infof(nil, "Acquire: 用户 %d 开始获取许可, 当前计数=%d", userId, counter.Get(userId))
+
 	limit := l.calculateLimit(userId)
 	startTime := time.Now()
 
@@ -199,22 +192,18 @@ func (l *UserConcurrencyLimiter) Acquire(ctx context.Context, userId int) error 
 			logger.Warnf(ctx, "用户 %d 并发请求等待超时", userId)
 			return ErrWaitTimeout
 		default:
-			// 获取当前并发数
-			current := l.GetCurrentConcurrent(userId)
-
+			current := counter.Get(userId)
 			if current < limit {
-				// 有空位，尝试获取
-				if l.tryIncrement(userId) {
-					waitTime := time.Since(startTime)
-					if waitTime > time.Second {
-						logger.Debugf(ctx, "用户 %d 等待 %v 后获得并发许可 (current=%d, limit=%d)",
-							userId, waitTime, current+1, limit)
-					}
-					return nil
+				counter.Incr(userId)
+				// 更新用户滑动窗口
+				UpdateWindowOnAcquire(userId, counter.Get(userId))
+				waitTime := time.Since(startTime)
+				if waitTime > time.Second {
+					logger.Debugf(ctx, "用户 %d 等待 %v 后获得并发许可 (current=%d, limit=%d)",
+						userId, waitTime, current+1, limit)
 				}
+				return nil
 			}
-
-			// 等待后重试
 			time.Sleep(l.checkInterval)
 		}
 	}
@@ -222,41 +211,29 @@ func (l *UserConcurrencyLimiter) Acquire(ctx context.Context, userId int) error 
 
 // Release 释放并发许可
 func (l *UserConcurrencyLimiter) Release(ctx context.Context, userId int) {
-	if !config.EnableConcurrencyLimit {
+	if !isGlobalConcurrencyEnabled() {
 		return
 	}
-	l.Decrement(userId)
-	logger.Debugf(ctx, "用户 %d 释放并发许可", userId)
+	logger.Infof(nil, "Release: 用户 %d 释放许可前, 当前计数=%d", userId, counter.Get(userId))
+	counter.Decr(userId)
+	// 更新用户滑动窗口
+	UpdateWindowOnRelease(userId, counter.Get(userId))
+	logger.Infof(nil, "Release: 用户 %d 释放许可后, 当前计数=%d", userId, counter.Get(userId))
 }
 
-// 强制设置用户并发数（用于调试）
+// SetConcurrent 强制设置用户并发数（用于调试）
 func (l *UserConcurrencyLimiter) SetConcurrent(userId int, count int) error {
-	if l.redis == nil {
-		return errors.New("Redis不可用")
+	counter.mu.Lock()
+	defer counter.mu.Unlock()
+	if count <= 0 {
+		delete(counter.counts, userId)
+	} else {
+		counter.counts[userId] = count
 	}
-	key := getConcurrentKey(userId)
-	return l.redis.Set(context.Background(), key, count, 0).Err()
+	return nil
 }
 
-// 获取所有用户的并发数统计
-func (l *UserConcurrencyLimiter) GetAllStats() (map[int]int, error) {
-	if l.redis == nil {
-		return nil, errors.New("Redis不可用")
-	}
-
-	pattern := "concurrent:*"
-	keys, err := l.redis.Keys(context.Background(), pattern).Result()
-	if err != nil {
-		return nil, err
-	}
-
-	stats := make(map[int]int)
-	for _, key := range keys {
-		userIdStr := key[len("concurrent:"):]
-		userId, _ := strconv.Atoi(userIdStr)
-		val, _ := l.redis.Get(context.Background(), key).Int()
-		stats[userId] = val
-	}
-
-	return stats, nil
+// IsGlobalEnabled 返回全局并发限制是否启用
+func IsGlobalEnabled() bool {
+	return isGlobalConcurrencyEnabled()
 }

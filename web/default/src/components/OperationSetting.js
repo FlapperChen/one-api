@@ -169,16 +169,22 @@ const OperationSetting = () => {
   }, [inputs.EnableAutoConcurrencyLimit]);
 
   // 恢复默认参数
-  const resetToDefaults = () => {
-    setInputs({
-      ...inputs,
-      DurationFactorWeight: 25,
-      ConcurrentFactorWeight: 25,
-      TrendFactorWeight: 20,
-      GPUFactorWeight: 30,
-      DurationThresholds: '1000:1.0,3000:0.8,5000:0.5,10000:0.1',
-      GPUThresholds: '50:1.0,70:0.8,85:0.5,95:0.1,100:0.1',
-    });
+  const resetToDefaults = async () => {
+    setLoading(true);
+    try {
+      const res = await API.post('/api/system/concurrency-reset');
+      const { success, message } = res.data;
+      if (success) {
+        showSuccess(message);
+        // 重新加载配置
+        await getOptions();
+      } else {
+        showError(message);
+      }
+    } catch (err) {
+      showError(err.message);
+    }
+    setLoading(false);
   };
 
   // 获取负载等级文字
@@ -775,14 +781,6 @@ const OperationSetting = () => {
                   </Form.Group>
                 </div>
 
-                {/* 恢复默认按钮 */}
-                <Form.Button
-                  onClick={resetToDefaults}
-                  size='small'
-                  style={{ marginTop: '10px' }}
-                >
-                  {t('setting.operation.concurrency.reset_defaults')}
-                </Form.Button>
               </>
             )}
           </div>
@@ -827,14 +825,23 @@ const OperationSetting = () => {
             )}
           </div>
 
-          <Form.Button
-            onClick={() => {
-              submitConfig('concurrency').then();
-            }}
-            primary
-          >
-            {t('setting.operation.concurrency.buttons.save')}
-          </Form.Button>
+          <Form.Group>
+            <Form.Button
+              onClick={() => {
+                submitConfig('concurrency').then();
+              }}
+              primary
+              disabled={loading}
+            >
+              {t('setting.operation.concurrency.buttons.save')}
+            </Form.Button>
+            <Form.Button
+              onClick={resetToDefaults}
+              disabled={loading}
+            >
+              {t('setting.operation.concurrency.reset_defaults')}
+            </Form.Button>
+          </Form.Group>
 
           <Divider />
           <Header as='h3'>{t('setting.operation.log.title')}</Header>

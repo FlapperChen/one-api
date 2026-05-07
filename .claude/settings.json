@@ -80,7 +80,13 @@
       "Bash(curl --noproxy '*' -s localhost:3009/api/option/)",
       "Bash(curl --noproxy '*' -s http://10.41.101.220:8000/metrics)",
       "Bash(curl --noproxy '*' -s localhost:3009/api/option/ -H \"Authorization: Bearer 5f9373333afe4177a5b8c6acd0cd5b0b\")",
-      "Bash(curl --noproxy '*' -s localhost:3009/api/option/ -H \"Authorization: Bearer 5f9373333afe4177a5b8c6acd0cd5b0b\" -X PUT -H \"Content-Type: application/json\" -d '{\"key\":\"ConcurrencyWaitTimeout\",\"value\":\"30\"}')"
+      "Bash(curl --noproxy '*' -s localhost:3009/api/option/ -H \"Authorization: Bearer 5f9373333afe4177a5b8c6acd0cd5b0b\" -X PUT -H \"Content-Type: application/json\" -d '{\"key\":\"ConcurrencyWaitTimeout\",\"value\":\"30\"}')",
+      "Bash(redis-cli GET \"concurrent:1\")",
+      "Bash(curl -s localhost:3009/api/option/ -H \"Authorization: $\\(cat ~/.one-api-token || echo ''\\)\")",
+      "Bash(curl --noproxy '*' -s localhost:3009/api/system/auto-concurrency-limit -H \"Authorization: Bearer $\\(cat /home/bmc/sd1/CODE/one-api/.token || echo ''\\)\")",
+      "Bash(LOG_LEVEL=DEBUG ./one-api --port 3009)",
+      "Bash(curl --noproxy '*' -s localhost:3009/api/status)",
+      "Bash(curl --noproxy '*' -s localhost:3009/api/system/auto-concurrency-limit -H 'Authorization: Bearer 433fd018f3944fcd9c7d42f81d740739')"
     ],
     "additionalDirectories": [
       "/tmp"

@@ -7,9 +7,11 @@ import (
 	"strings"
 
 	"github.com/songquanpeng/one-api/common"
-	"github.com/songquanpeng/one-api/common/config"
 	"github.com/songquanpeng/one-api/common/concurrency"
+	"github.com/songquanpeng/one-api/common/config"
+	"github.com/songquanpeng/one-api/common/ctxkey"
 	"github.com/songquanpeng/one-api/common/i18n"
+	"github.com/songquanpeng/one-api/common/logger"
 	"github.com/songquanpeng/one-api/common/message"
 	"github.com/songquanpeng/one-api/model"
 
@@ -232,7 +234,7 @@ func ResetPassword(c *gin.Context) {
 	return
 }
 
-// GetAutoConcurrencyLimit 获取当前自动并发限制信息
+// GetAutoConcurrencyLimit 获取当前用户自动并发限制信息
 func GetAutoConcurrencyLimit(c *gin.Context) {
 	evaluator := concurrency.GetLoadEvaluator()
 	if evaluator == nil {
@@ -243,16 +245,46 @@ func GetAutoConcurrencyLimit(c *gin.Context) {
 		return
 	}
 
-	// 刷新指标（获取最新的 GPU 数据）
+	// 获取当前用户ID
+	userId := c.GetInt(ctxkey.Id)
+	if userId == 0 {
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"message": "未登录",
+		})
+		return
+	}
+
+	// 获取用户的并发配置
+	userConfig, _ := model.GetOrCreateUserConcurrencyConfig(userId)
+	baseLimit := config.UserBaseConcurrentLimit
+	if userConfig != nil {
+		baseLimit = userConfig.MaxConcurrent
+	}
+
+	// 获取用户当前并发数
+	limiter := concurrency.GetLimiter()
+	currentConcurrent := 0
+	if limiter != nil {
+		currentConcurrent = limiter.GetCurrentConcurrent(userId)
+	}
+
+	// 刷新系统指标
 	evaluator.RefreshMetrics()
 	metrics := evaluator.GetMetrics()
-	dynamicLimit := evaluator.CalculateDynamicLimit(config.UserBaseConcurrentLimit)
+
+	// 计算用户级别的动态限制
+	dynamicLimit := evaluator.CalculateUserDynamicLimit(userId, baseLimit, currentConcurrent)
 	loadLevel := evaluator.GetLoadLevel()
+
+	// 调试信息
+	logger.Infof(c.Request.Context(), "[GetAutoConcurrencyLimit] final: userId=%d, baseLimit=%d, currentConcurrent=%d, dynamicLimit=%d",
+		userId, baseLimit, currentConcurrent, dynamicLimit)
 
 	// 计算各因子值
 	durationFactor := concurrency.CalculateDurationFactor(metrics.AvgRequestDuration)
-	concurrentFactor := concurrency.CalculateConcurrentFactor(metrics.CurrentConcurrent, config.UserBaseConcurrentLimit)
-	trendFactor := evaluator.CalculateTrendFactor()
+	concurrentFactor := concurrency.CalculateConcurrentFactor(currentConcurrent, baseLimit)
+	trendFactor := evaluator.CalculateUserTrendFactor(userId)
 	gpuFactor := concurrency.CalculateGPUFactor(metrics.GPUKVCacheUsage)
 
 	// 从 OptionMap 获取最新的配置值
@@ -266,9 +298,10 @@ func GetAutoConcurrencyLimit(c *gin.Context) {
 		"message": "",
 		"data": gin.H{
 			"dynamic_limit":      dynamicLimit,
-			"manual_limit":       config.UserBaseConcurrentLimit,
-			"actual_limit":       minDynamicLimit(dynamicLimit, config.UserBaseConcurrentLimit),
+			"manual_limit":       baseLimit,
+			"actual_limit":       minDynamicLimit(dynamicLimit, baseLimit),
 			"load_level":         loadLevel,
+			"current_concurrent": currentConcurrent,
 			"factors": gin.H{
 				"duration":   durationFactor,
 				"concurrent": concurrentFactor,
@@ -282,11 +315,10 @@ func GetAutoConcurrencyLimit(c *gin.Context) {
 				"gpu":        config.GPUFactorWeight,
 			},
 			"metrics": gin.H{
-				"avg_duration":      metrics.AvgRequestDuration,
-				"current_concurrent": metrics.CurrentConcurrent,
-				"gpu_usage":         metrics.GPUKVCacheUsage,
-				"success_rate":      metrics.SuccessRate,
-				"running_requests":  metrics.RunningRequests,
+				"avg_duration":     metrics.AvgRequestDuration,
+				"gpu_usage":        metrics.GPUKVCacheUsage,
+				"success_rate":     metrics.SuccessRate,
+				"running_requests": metrics.RunningRequests,
 			},
 			"enabled": gin.H{
 				"manual": manualEnabled,
@@ -304,4 +336,70 @@ func minDynamicLimit(a, b int) int {
 		return a
 	}
 	return b
+}
+
+// GetConcurrencyDebug 获取所有用户的并发计数（调试用）
+func GetConcurrencyDebug(c *gin.Context) {
+	limiter := concurrency.GetLimiter()
+	if limiter == nil {
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"message": "并发限制器未初始化",
+		})
+		return
+	}
+
+	stats, _ := limiter.GetAllStats()
+	total := 0
+	for _, count := range stats {
+		total += count
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "",
+		"data": gin.H{
+			"user_counts":    stats,
+			"total_count":    total,
+			"global_enabled": concurrency.IsGlobalEnabled(),
+		},
+	})
+}
+
+// ResetConcurrencyConfig 重置并发控制配置为默认值
+func ResetConcurrencyConfig(c *gin.Context) {
+	// 从配置文件默认值写入数据库
+	defaults := map[string]string{
+		"EnableManualConcurrencyLimit": "true",
+		"EnableAutoConcurrencyLimit":   "true",
+		"UserBaseConcurrentLimit":      "5",
+		"ConcurrencyWaitTimeout":       "30",
+		"ConcurrencyCheckInterval":     "100",
+		"DurationFactorWeight":         "25",
+		"ConcurrentFactorWeight":       "25",
+		"TrendFactorWeight":            "20",
+		"GPUFactorWeight":              "30",
+		"EnableGPUMonitoring":          "false",
+		"VLLMAPIURL":                   "http://localhost:8000",
+		"GPUKVCacheWarn":               "85",
+		"GPUKVCacheMax":                "95",
+		"EnableRequestDeduplication":   "true",
+		"RequestCacheTTL":              "30",
+	}
+
+	// 批量更新配置
+	for key, value := range defaults {
+		if err := model.UpdateOption(key, value); err != nil {
+			c.JSON(http.StatusOK, gin.H{
+				"success": false,
+				"message": fmt.Sprintf("重置配置失败: %s", err.Error()),
+			})
+			return
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "并发控制配置已恢复默认值",
+	})
 }

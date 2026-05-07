@@ -62,10 +62,8 @@ func main() {
 	}
 
 	// Initialize concurrency limiter
-	if config.EnableConcurrencyLimit && common.RedisEnabled {
-		concurrency.InitLimiter()
-		logger.SysLog("user concurrency limit enabled")
-	}
+	concurrency.InitLimiter()
+	logger.SysLog("user concurrency limit enabled")
 
 	// Initialize options
 	model.InitOptionMap()
