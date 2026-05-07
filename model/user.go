@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"gorm.io/gorm"
@@ -78,10 +79,22 @@ func GetAllUsers(startIdx int, num int, order string) (users []*User, err error)
 }
 
 func SearchUsers(keyword string) (users []*User, err error) {
+	// 尝试将 keyword 解析为数字（用户ID）
+	if userId, parseErr := strconv.Atoi(keyword); parseErr == nil {
+		// 先按 ID 精确查找
+		var idUsers []*User
+		idErr := DB.Omit("password").Where("id = ?", userId).Find(&idUsers).Error
+		if idErr == nil && len(idUsers) > 0 {
+			return idUsers, nil
+		}
+	}
+	// 按用户名、邮箱、显示名称模糊搜索
 	if !common.UsingPostgreSQL {
-		err = DB.Omit("password").Where("id = ? or username LIKE ? or email LIKE ? or display_name LIKE ?", keyword, keyword+"%", keyword+"%", keyword+"%").Find(&users).Error
+		err = DB.Omit("password").Where("username LIKE ? or email LIKE ? or display_name LIKE ? or CAST(id AS CHAR) = ?",
+			"%"+keyword+"%", "%"+keyword+"%", "%"+keyword+"%", keyword).Find(&users).Error
 	} else {
-		err = DB.Omit("password").Where("username LIKE ? or email LIKE ? or display_name LIKE ?", keyword+"%", keyword+"%", keyword+"%").Find(&users).Error
+		err = DB.Omit("password").Where("username ILIKE ? or email ILIKE ? or display_name ILIKE ? or CAST(id AS TEXT) = ?",
+			"%"+keyword+"%", "%"+keyword+"%", "%"+keyword+"%", keyword).Find(&users).Error
 	}
 	return users, err
 }

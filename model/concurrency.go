@@ -36,15 +36,15 @@ func (u *UserConcurrencyConfig) BeforeUpdate(tx *gorm.DB) error {
 }
 
 func GetUserConcurrencyConfig(userId int) (*UserConcurrencyConfig, error) {
-	var config UserConcurrencyConfig
-	err := DB.First(&config, "user_id = ?", userId).Error
+	var configs []UserConcurrencyConfig
+	err := DB.Where("user_id = ?", userId).Limit(1).Find(&configs).Error
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
-			return nil, nil
-		}
 		return nil, err
 	}
-	return &config, nil
+	if len(configs) == 0 {
+		return nil, nil
+	}
+	return &configs[0], nil
 }
 
 func GetOrCreateUserConcurrencyConfig(userId int) (*UserConcurrencyConfig, error) {

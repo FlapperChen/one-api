@@ -52,6 +52,7 @@ func SetApiRouter(router *gin.Engine) {
 				// 用户并发配置
 				selfRoute.GET("/concurrency", controller.GetUserConcurrencyConfig)
 				selfRoute.PUT("/concurrency", controller.UpdateUserConcurrencyConfig)
+				selfRoute.DELETE("/concurrency", controller.DeleteUserConcurrencyConfig)
 				selfRoute.GET("/concurrency/current", controller.GetUserCurrentConcurrent)
 			}
 
@@ -69,6 +70,7 @@ func SetApiRouter(router *gin.Engine) {
 				adminRoute.GET("/concurrency/stats", controller.GetAllConcurrencyStats)
 				adminRoute.GET("/concurrency/:id", controller.GetUserConcurrencyConfigById)
 				adminRoute.PUT("/concurrency/:id", controller.UpdateUserConcurrencyConfigById)
+				adminRoute.DELETE("/concurrency/:id", controller.DeleteUserConcurrencyConfigById)
 			}
 		}
 		optionRoute := apiRouter.Group("/option")
@@ -81,6 +83,11 @@ func SetApiRouter(router *gin.Engine) {
 		apiRouter.GET("/system/load", controller.GetSystemLoadInfo)
 		// 自动并发限制信息
 		apiRouter.GET("/system/auto-concurrency-limit", middleware.UserAuth(), controller.GetAutoConcurrencyLimit)
+		// 管理员获取指定用户的并发状态
+		apiRouter.GET("/system/auto-concurrency-limit/:userId", middleware.AdminAuth(), controller.GetAutoConcurrencyLimitForUser)
+		// 配置模式管理
+		apiRouter.GET("/system/concurrency-config-mode", middleware.UserAuth(), controller.GetConcurrencyConfigMode)
+		apiRouter.PUT("/system/concurrency-config-mode", middleware.UserAuth(), controller.SetConcurrencyConfigMode)
 		// 并发计数调试
 		apiRouter.GET("/system/concurrency-debug", middleware.AdminAuth(), controller.GetConcurrencyDebug)
 		// 重置并发配置为默认值

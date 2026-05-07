@@ -65,6 +65,7 @@ const OperationSetting = () => {
     factors: { duration: 1.0, concurrent: 1.0, trend: 1.0, gpu: 1.0 },
     metrics: { avgDuration: 0, currentConcurrent: 0, gpuUsage: 0 },
     enabled: { manual: false, auto: false, dedup: false, gpu: false },
+    hasPersonalConfig: false,
   });
   const [originInputs, setOriginInputs] = useState({});
   let [loading, setLoading] = useState(false);
@@ -77,6 +78,16 @@ const OperationSetting = () => {
   let [selectedGroup, setSelectedGroup] = useState('');
   let [groupModels, setGroupModels] = useState([]);
   let [selectedModels, setSelectedModels] = useState([]);
+
+  // 并发配置模式状态
+  let [configMode, setConfigMode] = useState('global'); // 'personal' or 'global'
+  let [targetUserId, setTargetUserId] = useState(() => parseInt(sessionStorage.getItem('targetUserId') || '0')); // 管理员指定的用户ID
+  let [isAdmin, setIsAdmin] = useState(false); // 是否为管理员
+  let [currentUserId, setCurrentUserId] = useState(0); // 当前用户ID
+  let [userSearchKeyword, setUserSearchKeyword] = useState(''); // 用户搜索关键词
+  let [searchResults, setSearchResults] = useState([]); // 搜索结果
+  let [searchLoading, setSearchLoading] = useState(false); // 搜索加载状态
+  let [targetUserName, setTargetUserName] = useState(sessionStorage.getItem('targetUserName') || ''); // 目标用户名称
 
   const getOptions = async () => {
     const res = await API.get('/api/option/');
@@ -130,8 +141,88 @@ const OperationSetting = () => {
   useEffect(() => {
     getOptions().then();
     loadGroups().then();
+    fetchConfigMode().then();
     fetchAutoStatus();
   }, []);
+
+  // 获取配置模式
+  const fetchConfigMode = async () => {
+    try {
+      const res = await API.get('/api/system/concurrency-config-mode');
+      if (res.data.success) {
+        setConfigMode(res.data.data.mode || 'global');
+        setIsAdmin(res.data.data.is_admin || false);
+        const fetchedCurrentUserId = res.data.data.current_user_id || 0;
+        setCurrentUserId(fetchedCurrentUserId);
+
+        // 如果配置模式是 personal 且之前选择了其他用户，加载该用户配置
+        const savedTargetUserId = parseInt(sessionStorage.getItem('targetUserId') || '0');
+        if (res.data.data.mode === 'personal' && savedTargetUserId > 0 && savedTargetUserId !== fetchedCurrentUserId) {
+          setTargetUserId(savedTargetUserId);
+          setTargetUserName(sessionStorage.getItem('targetUserName') || '');
+          fetchAutoStatusForUser(savedTargetUserId);
+        }
+      }
+    } catch (e) {
+      // 忽略错误
+    }
+  };
+
+  // 设置配置模式
+  const setConfigModeAPI = async (mode) => {
+    try {
+      const res = await API.put('/api/system/concurrency-config-mode', { mode });
+      if (res.data.success) {
+        setConfigMode(mode);
+        // 刷新所有数据
+        await Promise.all([getOptions(), fetchAutoStatus()]);
+        showSuccess('配置模式已切换为' + (mode === 'global' ? '全局配置' : '个人配置'));
+      } else {
+        showError(res.data.message);
+      }
+    } catch (e) {
+      showError(e.message);
+    }
+  };
+
+  // 获取指定用户的自动并发状态（管理员用）
+  const fetchAutoStatusForUser = async (userId) => {
+    try {
+      const res = await API.get(`/api/system/auto-concurrency-limit/${userId}`);
+      const { success, data } = res.data;
+      if (success && data) {
+        setAutoStatus({
+          dynamicLimit: data.dynamic_limit || 0,
+          manualLimit: data.manual_limit || 5,
+          actualLimit: data.actual_limit || 5,
+          loadLevel: data.load_level || 0,
+          factors: data.factors || { duration: 1.0, concurrent: 1.0, trend: 1.0, gpu: 1.0 },
+          weights: data.weights || { duration: 25, concurrent: 25, trend: 20, gpu: 30 },
+          metrics: {
+            avgDuration: data.metrics?.avg_duration || 0,
+            currentConcurrent: data.metrics?.current_concurrent || 0,
+            gpuUsage: data.metrics?.gpu_usage || 0,
+            runningRequests: data.metrics?.running_requests || 0,
+          },
+          enabled: data.enabled || { manual: false, auto: false, dedup: true, gpu: false },
+          hasPersonalConfig: data.has_personal_config || false,
+        });
+        // 更新 inputs 中的并发配置
+        if (data.enabled) {
+          setInputs(prev => ({
+            ...prev,
+            EnableManualConcurrencyLimit: data.enabled.manual ? 'true' : 'false',
+            EnableAutoConcurrencyLimit: data.enabled.auto ? 'true' : 'false',
+            UserBaseConcurrentLimit: data.manual_limit || 5,
+          }));
+        }
+      } else {
+        showError(data.message || '获取用户配置失败');
+      }
+    } catch (e) {
+      showError(e.message);
+    }
+  };
 
   // 获取自动并发限制状态
   const fetchAutoStatus = async () => {
@@ -153,10 +244,56 @@ const OperationSetting = () => {
             runningRequests: data.metrics?.running_requests || 0,
           },
           enabled: data.enabled || { manual: false, auto: false, dedup: true, gpu: false },
+          hasPersonalConfig: data.has_personal_config || false,
         });
       }
     } catch (e) {
       // 忽略错误
+    }
+  };
+
+  // 搜索用户
+  const searchUsers = async (keyword) => {
+    const searchKeyword = keyword || userSearchKeyword;
+    if (!searchKeyword.trim()) {
+      setSearchResults([]);
+      return;
+    }
+    setSearchLoading(true);
+    try {
+      const res = await API.get(`/api/user/search?keyword=${encodeURIComponent(searchKeyword)}`);
+      const { success, data } = res.data;
+      if (success && data) {
+        setSearchResults(data.slice(0, 10)); // 最多显示10个结果
+      } else {
+        setSearchResults([]);
+      }
+    } catch (e) {
+      setSearchResults([]);
+    }
+    setSearchLoading(false);
+  };
+
+  // 选择搜索结果中的用户
+  const selectUser = (user) => {
+    setUserSearchKeyword('');
+    setSearchResults([]);
+    if (user.id === currentUserId) {
+      // 选择当前用户，重置目标用户ID
+      setTargetUserId(0);
+      setTargetUserName('');
+      sessionStorage.setItem('targetUserId', '0');
+      sessionStorage.setItem('targetUserName', '');
+      fetchAutoStatus(); // 刷新当前用户状态
+    } else {
+      // 选择其他用户
+      setTargetUserId(user.id);
+      setTargetUserName(user.username || `用户${user.id}`);
+      sessionStorage.setItem('targetUserId', String(user.id));
+      sessionStorage.setItem('targetUserName', user.username || `用户${user.id}`);
+      if (isAdmin) {
+        fetchAutoStatusForUser(user.id);
+      }
     }
   };
 
@@ -172,14 +309,33 @@ const OperationSetting = () => {
   const resetToDefaults = async () => {
     setLoading(true);
     try {
-      const res = await API.post('/api/system/concurrency-reset');
-      const { success, message } = res.data;
-      if (success) {
-        showSuccess(message);
-        // 重新加载配置
-        await getOptions();
+      if (configMode === 'global') {
+        // 调用全局重置
+        const res = await API.post('/api/system/concurrency-reset');
+        const { success, message } = res.data;
+        if (success) {
+          showSuccess(message);
+          // 重新加载配置
+          await getOptions();
+        } else {
+          showError(message);
+        }
       } else {
-        showError(message);
+        // 删除个人配置（使用户恢复使用全局配置）
+        const resetUserId = targetUserId || currentUserId;
+        const resetEndpoint = isAdmin && resetUserId !== currentUserId
+          ? `/api/user/concurrency/${resetUserId}`  // 管理员重置其他用户
+          : '/api/user/concurrency';
+
+        const res = await API.delete(resetEndpoint);
+        const { success, message } = res.data;
+        if (success) {
+          showSuccess(message);
+          // 删除后切换到全局模式，使用户真正使用全局配置
+          await setConfigModeAPI('global');
+        } else {
+          showError(message);
+        }
       }
     } catch (err) {
       showError(err.message);
@@ -277,17 +433,21 @@ const OperationSetting = () => {
 
   const updateOption = async (key, value) => {
     setLoading(true);
-    const res = await API.put('/api/option/', {
-      key,
-      value: String(value),
-    });
-    const { success, message } = res.data;
-    if (success) {
-      setInputs((inputs) => ({ ...inputs, [key]: String(value) }));
-    } else {
-      showError(message);
+    try {
+      const res = await API.put('/api/option/', {
+        key,
+        value: String(value),
+      });
+      const { success, message } = res.data;
+      if (success) {
+        setInputs((inputs) => ({ ...inputs, [key]: String(value) }));
+      } else {
+        showError(message);
+        throw new Error(message || '保存失败');
+      }
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   const handleInputChange = async (e, { name, value, checked }) => {
@@ -332,35 +492,97 @@ const OperationSetting = () => {
         }
         break;
       case 'concurrency':
-        if (originInputs['EnableConcurrencyLimit'] !== inputs.EnableConcurrencyLimit) {
-          await updateOption('EnableConcurrencyLimit', inputs.EnableConcurrencyLimit);
-        }
-        if (originInputs['UserBaseConcurrentLimit'] !== inputs.UserBaseConcurrentLimit) {
-          await updateOption('UserBaseConcurrentLimit', inputs.UserBaseConcurrentLimit);
-        }
-        if (originInputs['ConcurrencyWaitTimeout'] !== inputs.ConcurrencyWaitTimeout) {
-          await updateOption('ConcurrencyWaitTimeout', inputs.ConcurrencyWaitTimeout);
-        }
-        if (originInputs['ConcurrencyCheckInterval'] !== inputs.ConcurrencyCheckInterval) {
-          await updateOption('ConcurrencyCheckInterval', inputs.ConcurrencyCheckInterval);
-        }
-        if (originInputs['EnableGPUMonitoring'] !== inputs.EnableGPUMonitoring) {
-          await updateOption('EnableGPUMonitoring', inputs.EnableGPUMonitoring);
-        }
-        if (originInputs['VLLMAPIURL'] !== inputs.VLLMAPIURL) {
-          await updateOption('VLLMAPIURL', inputs.VLLMAPIURL);
-        }
-        if (originInputs['GPUKVCacheWarn'] !== inputs.GPUKVCacheWarn) {
-          await updateOption('GPUKVCacheWarn', inputs.GPUKVCacheWarn);
-        }
-        if (originInputs['GPUKVCacheMax'] !== inputs.GPUKVCacheMax) {
-          await updateOption('GPUKVCacheMax', inputs.GPUKVCacheMax);
-        }
-        if (originInputs['EnableRequestDeduplication'] !== inputs.EnableRequestDeduplication) {
-          await updateOption('EnableRequestDeduplication', inputs.EnableRequestDeduplication);
-        }
-        if (originInputs['RequestCacheTTL'] !== inputs.RequestCacheTTL) {
-          await updateOption('RequestCacheTTL', inputs.RequestCacheTTL);
+        if (configMode === 'global') {
+          // 全局配置模式：保存到 options 表
+          let saveSuccess = true;
+          if (originInputs['EnableConcurrencyLimit'] !== inputs.EnableConcurrencyLimit) {
+            try {
+              await updateOption('EnableConcurrencyLimit', inputs.EnableConcurrencyLimit);
+            } catch (e) {
+              saveSuccess = false;
+            }
+          }
+          if (originInputs['UserBaseConcurrentLimit'] !== inputs.UserBaseConcurrentLimit) {
+            try {
+              await updateOption('UserBaseConcurrentLimit', inputs.UserBaseConcurrentLimit);
+            } catch (e) {
+              saveSuccess = false;
+            }
+          }
+          if (originInputs['ConcurrencyWaitTimeout'] !== inputs.ConcurrencyWaitTimeout) {
+            try {
+              await updateOption('ConcurrencyWaitTimeout', inputs.ConcurrencyWaitTimeout);
+            } catch (e) {
+              saveSuccess = false;
+            }
+          }
+          if (originInputs['ConcurrencyCheckInterval'] !== inputs.ConcurrencyCheckInterval) {
+            try {
+              await updateOption('ConcurrencyCheckInterval', inputs.ConcurrencyCheckInterval);
+            } catch (e) {
+              saveSuccess = false;
+            }
+          }
+          if (originInputs['EnableGPUMonitoring'] !== inputs.EnableGPUMonitoring) {
+            try {
+              await updateOption('EnableGPUMonitoring', inputs.EnableGPUMonitoring);
+            } catch (e) {
+              saveSuccess = false;
+            }
+          }
+          if (originInputs['VLLMAPIURL'] !== inputs.VLLMAPIURL) {
+            try {
+              await updateOption('VLLMAPIURL', inputs.VLLMAPIURL);
+            } catch (e) {
+              saveSuccess = false;
+            }
+          }
+          if (originInputs['GPUKVCacheWarn'] !== inputs.GPUKVCacheWarn) {
+            try {
+              await updateOption('GPUKVCacheWarn', inputs.GPUKVCacheWarn);
+            } catch (e) {
+              saveSuccess = false;
+            }
+          }
+          if (originInputs['GPUKVCacheMax'] !== inputs.GPUKVCacheMax) {
+            try {
+              await updateOption('GPUKVCacheMax', inputs.GPUKVCacheMax);
+            } catch (e) {
+              saveSuccess = false;
+            }
+          }
+          if (originInputs['EnableRequestDeduplication'] !== inputs.EnableRequestDeduplication) {
+            try {
+              await updateOption('EnableRequestDeduplication', inputs.EnableRequestDeduplication);
+            } catch (e) {
+              saveSuccess = false;
+            }
+          }
+          if (originInputs['RequestCacheTTL'] !== inputs.RequestCacheTTL) {
+            try {
+              await updateOption('RequestCacheTTL', inputs.RequestCacheTTL);
+            } catch (e) {
+              saveSuccess = false;
+            }
+          }
+          if (saveSuccess) {
+            setOriginInputs({ ...inputs }); // 更新原始值
+            showSuccess('并发配置已保存');
+          }
+        } else {
+          // 个人配置模式：保存到用户并发配置
+          const saveUserId = targetUserId || currentUserId;
+          const saveEndpoint = isAdmin && saveUserId !== currentUserId
+            ? `/api/user/concurrency/${saveUserId}`
+            : '/api/user/concurrency';
+
+          await API.put(saveEndpoint, {
+            max_concurrent: parseInt(inputs.UserBaseConcurrentLimit) || 5,
+            enable_auto_limit: inputs.EnableAutoConcurrencyLimit === 'true',
+            status: inputs.EnableManualConcurrencyLimit === 'true' ? 1 : 2,
+          });
+          showSuccess(`用户 ${saveUserId} 的个人配置已保存`);
+          await fetchAutoStatus();
         }
         break;
       case 'ratio':
@@ -630,6 +852,103 @@ const OperationSetting = () => {
 
           <Divider />
           <Header as='h3'>{t('setting.operation.concurrency.title')}</Header>
+
+          {/* 配置模式切换 */}
+          <div style={{ marginBottom: '15px', padding: '12px', backgroundColor: '#fff3cd', borderRadius: '6px', border: '1px solid #ffc107' }}>
+            <Form.Group inline>
+              <label style={{ marginRight: '10px', fontWeight: 'bold' }}>配置模式:</label>
+              <Form.Checkbox
+                checked={configMode === 'global'}
+                label='全局配置'
+                onChange={() => setConfigModeAPI('global')}
+              />
+              <Form.Checkbox
+                checked={configMode === 'personal'}
+                label='个人配置'
+                onChange={() => setConfigModeAPI('personal')}
+              />
+            </Form.Group>
+            {configMode === 'personal' && (
+              <Form.Group inline style={{ marginTop: '8px' }}>
+                {isAdmin && (
+                  <>
+                    <div style={{ position: 'relative' }}>
+                      <Form.Input
+                        label='搜索用户'
+                        value={userSearchKeyword}
+                        onChange={(e, { value }) => {
+                          setUserSearchKeyword(value);
+                          // 自动搜索
+                          if (value.length >= 1) {
+                            searchUsers(value);
+                          } else {
+                            setSearchResults([]);
+                          }
+                        }}
+                        placeholder='输入用户名或ID搜索'
+                        style={{ width: '250px' }}
+                      />
+                      {/* 搜索结果下拉 */}
+                      {searchResults.length > 0 && (
+                        <div style={{
+                          position: 'absolute',
+                          top: '100%',
+                          left: 0,
+                          zIndex: 1000,
+                          backgroundColor: 'white',
+                          border: '1px solid #ddd',
+                          borderRadius: '4px',
+                          boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+                          maxHeight: '200px',
+                          overflowY: 'auto',
+                          width: '100%',
+                        }}>
+                          {searchResults.map((user) => (
+                            <div
+                              key={user.id}
+                              onClick={() => selectUser(user)}
+                              style={{
+                                padding: '8px 12px',
+                                cursor: 'pointer',
+                                borderBottom: '1px solid #eee',
+                              }}
+                              onMouseEnter={(e) => e.target.style.backgroundColor = '#f5f5f5'}
+                              onMouseLeave={(e) => e.target.style.backgroundColor = 'white'}
+                            >
+                              <div style={{ fontWeight: 'bold' }}>{user.username}</div>
+                              <div style={{ fontSize: '12px', color: '#666' }}>
+                                ID: {user.id} {user.email ? `| ${user.email}` : ''} {user.remark ? `| ${user.remark}` : ''}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </>
+                )}
+                {!isAdmin && (
+                  <span style={{ color: '#666', fontSize: '14px' }}>
+                    当前用户ID: {currentUserId}
+                  </span>
+                )}
+              </Form.Group>
+            )}
+            {configMode === 'personal' && targetUserId !== 0 && targetUserId !== currentUserId && (
+              <div style={{ marginTop: '5px', fontSize: '12px', color: '#d39e00' }}>
+                <b>注意:</b> 正在查看/编辑用户 {targetUserName || targetUserId} (ID: {targetUserId}) 的个人配置
+              </div>
+            )}
+            {configMode === 'personal' && (
+              <div style={{ marginTop: '5px', fontSize: '12px', color: '#666' }}>
+                {!autoStatus.hasPersonalConfig && (
+                  <div style={{ marginBottom: '5px', color: '#dc3545' }}>
+                    <b>提示:</b> 该用户未配置个人并发设置，当前使用全局配置
+                  </div>
+                )}
+                <b>说明:</b> 个人配置仅支持最大并发数、自动限制开关、状态设置，其他配置项（权重、GPU等）使用全局值
+              </div>
+            )}
+          </div>
 
           {/* 请求去重设置 */}
           <div style={{ marginBottom: '20px', padding: '15px', backgroundColor: '#f8f9fa', borderRadius: '8px', border: '1px solid #e9ecef' }}>

@@ -23,6 +23,11 @@ func getConfigInt(key string, defaultVal int) int {
 	return defaultVal
 }
 
+// GetCurrentConfigInt 从 OptionMap 获取配置值（导出版本）
+func GetCurrentConfigInt(key string, defaultVal int) int {
+	return getConfigInt(key, defaultVal)
+}
+
 func getConfigFloat(key string, defaultVal float64) float64 {
 	if val, ok := config.OptionMap[key]; ok {
 		if v, err := strconv.ParseFloat(val, 64); err == nil {

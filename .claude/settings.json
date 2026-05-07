@@ -86,7 +86,8 @@
       "Bash(curl --noproxy '*' -s localhost:3009/api/system/auto-concurrency-limit -H \"Authorization: Bearer $\\(cat /home/bmc/sd1/CODE/one-api/.token || echo ''\\)\")",
       "Bash(LOG_LEVEL=DEBUG ./one-api --port 3009)",
       "Bash(curl --noproxy '*' -s localhost:3009/api/status)",
-      "Bash(curl --noproxy '*' -s localhost:3009/api/system/auto-concurrency-limit -H 'Authorization: Bearer 433fd018f3944fcd9c7d42f81d740739')"
+      "Bash(curl --noproxy '*' -s localhost:3009/api/system/auto-concurrency-limit -H 'Authorization: Bearer 433fd018f3944fcd9c7d42f81d740739')",
+      "Bash(curl --noproxy '*' -s localhost:3009/api/option/ -H 'Authorization: Bearer 433fd018f3944fcd9c7d42f81d740739')"
     ],
     "additionalDirectories": [
       "/tmp"

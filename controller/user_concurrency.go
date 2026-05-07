@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
 
@@ -234,5 +235,46 @@ func GetSystemLoadInfo(c *gin.Context) {
 			"request_count":  metrics.RequestCount,
 			"error_count":    metrics.ErrorCount,
 		},
+	})
+}
+
+// DeleteUserConcurrencyConfig 删除用户并发配置（使其恢复使用全局配置）
+func DeleteUserConcurrencyConfig(c *gin.Context) {
+	userId := c.GetInt(ctxkey.Id)
+	if userId == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "无效的用户ID"})
+		return
+	}
+
+	result := model.DB.Delete(&model.UserConcurrencyConfig{}, "user_id = ?", userId)
+	if result.Error != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": result.Error.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "个人配置已清除，将使用全局配置",
+	})
+}
+
+// DeleteUserConcurrencyConfigById 删除指定用户的并发配置（管理员）
+func DeleteUserConcurrencyConfigById(c *gin.Context) {
+	userIdStr := c.Param("id")
+	userId, err := strconv.Atoi(userIdStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "无效的用户ID"})
+		return
+	}
+
+	result := model.DB.Delete(&model.UserConcurrencyConfig{}, "user_id = ?", userId)
+	if result.Error != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": result.Error.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": fmt.Sprintf("用户 %d 的个人配置已清除，将使用全局配置", userId),
 	})
 }
