@@ -28,6 +28,19 @@ func GetCurrentConfigInt(key string, defaultVal int) int {
 	return getConfigInt(key, defaultVal)
 }
 
+// GetCurrentConfigBool 从 OptionMap 获取布尔配置值（导出版本）
+func GetCurrentConfigBool(key string, defaultVal bool) bool {
+	return getConfigBool(key, defaultVal)
+}
+
+// getConfigBool 内部函数：从 OptionMap 获取布尔配置值
+func getConfigBool(key string, defaultVal bool) bool {
+	if val, ok := config.OptionMap[key]; ok {
+		return val == "true"
+	}
+	return defaultVal
+}
+
 func getConfigFloat(key string, defaultVal float64) float64 {
 	if val, ok := config.OptionMap[key]; ok {
 		if v, err := strconv.ParseFloat(val, 64); err == nil {

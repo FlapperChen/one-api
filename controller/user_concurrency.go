@@ -19,9 +19,16 @@ func GetUserConcurrencyConfig(c *gin.Context) {
 		return
 	}
 
-	config, err := model.GetOrCreateUserConcurrencyConfig(userId)
+	config, err := model.GetUserConcurrencyConfig(userId)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": err.Error()})
+		return
+	}
+	if config == nil {
+		c.JSON(http.StatusOK, gin.H{
+			"success": true,
+			"data":    nil,
+		})
 		return
 	}
 
@@ -34,12 +41,15 @@ func GetUserConcurrencyConfig(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data": gin.H{
-			"user_id":            config.UserId,
-			"max_concurrent":     config.MaxConcurrent,
-			"enable_auto_limit":  config.EnableAutoLimit,
-			"status":             config.Status,
-			"current_concurrent": currentConcurrent,
-			"dynamic_limit":      config.MaxConcurrent, // TODO: 计算动态限制
+			"user_id":             config.UserId,
+			"max_concurrent":      config.MaxConcurrent,
+			"enable_auto_limit":   config.EnableAutoLimit,
+			"status":              config.Status,
+			"wait_timeout":        config.WaitTimeout,
+			"check_interval":      config.CheckInterval,
+			"cache_ttl":           config.CacheTTL,
+			"enable_request_dedup": config.EnableRequestDedup,
+			"current_concurrent":  currentConcurrent,
 		},
 	})
 }
@@ -53,9 +63,13 @@ func UpdateUserConcurrencyConfig(c *gin.Context) {
 	}
 
 	var req struct {
-		MaxConcurrent   int  `json:"max_concurrent"`
-		EnableAutoLimit bool `json:"enable_auto_limit"`
-		Status          int  `json:"status"`
+		MaxConcurrent      int  `json:"max_concurrent"`
+		EnableAutoLimit    bool `json:"enable_auto_limit"`
+		Status             int  `json:"status"`
+		WaitTimeout        int  `json:"wait_timeout"`
+		CheckInterval      int  `json:"check_interval"`
+		CacheTTL           int  `json:"cache_ttl"`
+		EnableRequestDedup bool `json:"enable_request_dedup"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -77,6 +91,16 @@ func UpdateUserConcurrencyConfig(c *gin.Context) {
 	if req.Status > 0 {
 		config.Status = req.Status
 	}
+	if req.WaitTimeout > 0 {
+		config.WaitTimeout = req.WaitTimeout
+	}
+	if req.CheckInterval > 0 {
+		config.CheckInterval = req.CheckInterval
+	}
+	if req.CacheTTL > 0 {
+		config.CacheTTL = req.CacheTTL
+	}
+	config.EnableRequestDedup = req.EnableRequestDedup
 
 	if err := model.UpdateUserConcurrencyConfig(config); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": err.Error()})
@@ -140,9 +164,16 @@ func GetUserConcurrencyConfigById(c *gin.Context) {
 		return
 	}
 
-	config, err := model.GetOrCreateUserConcurrencyConfig(userId)
+	config, err := model.GetUserConcurrencyConfig(userId)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": err.Error()})
+		return
+	}
+	if config == nil {
+		c.JSON(http.StatusOK, gin.H{
+			"success": true,
+			"data":    nil,
+		})
 		return
 	}
 
@@ -154,11 +185,15 @@ func GetUserConcurrencyConfigById(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data": gin.H{
-			"user_id":            config.UserId,
-			"max_concurrent":     config.MaxConcurrent,
-			"enable_auto_limit":  config.EnableAutoLimit,
-			"status":             config.Status,
-			"current_concurrent": currentConcurrent,
+			"user_id":              config.UserId,
+			"max_concurrent":       config.MaxConcurrent,
+			"enable_auto_limit":    config.EnableAutoLimit,
+			"status":               config.Status,
+			"wait_timeout":         config.WaitTimeout,
+			"check_interval":       config.CheckInterval,
+			"cache_ttl":            config.CacheTTL,
+			"enable_request_dedup": config.EnableRequestDedup,
+			"current_concurrent":   currentConcurrent,
 		},
 	})
 }
@@ -173,9 +208,13 @@ func UpdateUserConcurrencyConfigById(c *gin.Context) {
 	}
 
 	var req struct {
-		MaxConcurrent   int  `json:"max_concurrent"`
-		EnableAutoLimit bool `json:"enable_auto_limit"`
-		Status          int  `json:"status"`
+		MaxConcurrent      int  `json:"max_concurrent"`
+		EnableAutoLimit    bool `json:"enable_auto_limit"`
+		Status             int  `json:"status"`
+		WaitTimeout        int  `json:"wait_timeout"`
+		CheckInterval      int  `json:"check_interval"`
+		CacheTTL           int  `json:"cache_ttl"`
+		EnableRequestDedup bool `json:"enable_request_dedup"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -196,6 +235,16 @@ func UpdateUserConcurrencyConfigById(c *gin.Context) {
 	if req.Status > 0 {
 		config.Status = req.Status
 	}
+	if req.WaitTimeout > 0 {
+		config.WaitTimeout = req.WaitTimeout
+	}
+	if req.CheckInterval > 0 {
+		config.CheckInterval = req.CheckInterval
+	}
+	if req.CacheTTL > 0 {
+		config.CacheTTL = req.CacheTTL
+	}
+	config.EnableRequestDedup = req.EnableRequestDedup
 
 	if err := model.UpdateUserConcurrencyConfig(config); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": err.Error()})

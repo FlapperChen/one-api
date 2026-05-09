@@ -81,9 +81,9 @@ const OperationSetting = () => {
 
   // 并发配置模式状态
   let [configMode, setConfigMode] = useState('global'); // 'personal' or 'global'
-  let [targetUserId, setTargetUserId] = useState(() => parseInt(sessionStorage.getItem('targetUserId') || '0')); // 管理员指定的用户ID
-  let [isAdmin, setIsAdmin] = useState(false); // 是否为管理员
-  let [currentUserId, setCurrentUserId] = useState(0); // 当前用户ID
+  let [targetUserId, setTargetUserId] = useState(() => parseInt(sessionStorage.getItem('targetUserId') || '1')); // 个人配置模式下的目标用户ID，默认root
+  let [isRoot, setIsRoot] = useState(false); // 是否为root用户
+  let [currentUserId, setCurrentUserId] = useState(0); // 当前登录用户ID（仅用于显示）
   let [userSearchKeyword, setUserSearchKeyword] = useState(''); // 用户搜索关键词
   let [searchResults, setSearchResults] = useState([]); // 搜索结果
   let [searchLoading, setSearchLoading] = useState(false); // 搜索加载状态
@@ -139,28 +139,33 @@ const OperationSetting = () => {
   };
 
   useEffect(() => {
-    getOptions().then();
     loadGroups().then();
     fetchConfigMode().then();
-    fetchAutoStatus();
   }, []);
 
-  // 获取配置模式
+  // 获取配置模式并加载相应数据
   const fetchConfigMode = async () => {
     try {
       const res = await API.get('/api/system/concurrency-config-mode');
       if (res.data.success) {
-        setConfigMode(res.data.data.mode || 'global');
-        setIsAdmin(res.data.data.is_admin || false);
-        const fetchedCurrentUserId = res.data.data.current_user_id || 0;
-        setCurrentUserId(fetchedCurrentUserId);
+        const mode = res.data.data.mode || 'global';
+        const userId = res.data.data.current_user_id || 0;
+        const isRootUser = res.data.data.is_admin || false;
 
-        // 如果配置模式是 personal 且之前选择了其他用户，加载该用户配置
-        const savedTargetUserId = parseInt(sessionStorage.getItem('targetUserId') || '0');
-        if (res.data.data.mode === 'personal' && savedTargetUserId > 0 && savedTargetUserId !== fetchedCurrentUserId) {
+        setConfigMode(mode);
+        setIsRoot(isRootUser);
+        setCurrentUserId(userId);
+
+        if (mode === 'global') {
+          // 全局模式：加载全局配置
+          await getOptions();
+          await fetchAutoStatus();
+        } else {
+          // 个人模式：加载目标用户配置
+          const savedTargetUserId = parseInt(sessionStorage.getItem('targetUserId') || '1');
           setTargetUserId(savedTargetUserId);
-          setTargetUserName(sessionStorage.getItem('targetUserName') || '');
-          fetchAutoStatusForUser(savedTargetUserId);
+          setTargetUserName(sessionStorage.getItem('targetUserName') || '用户' + savedTargetUserId);
+          await fetchAutoStatusForUser(savedTargetUserId);
         }
       }
     } catch (e) {
@@ -170,18 +175,34 @@ const OperationSetting = () => {
 
   // 设置配置模式
   const setConfigModeAPI = async (mode) => {
+    setLoading(true);
     try {
       const res = await API.put('/api/system/concurrency-config-mode', { mode });
       if (res.data.success) {
+        if (mode === 'global') {
+          // 全局模式：加载全局配置，只清除内存中的状态，保留 sessionStorage
+          setTargetUserId(0);
+          setTargetUserName('');
+          setSearchResults([]);
+          await getOptions();
+          await fetchAutoStatus();
+        } else {
+          // 个人模式：加载目标用户的配置（优先使用 sessionStorage 中保存的用户）
+          const savedTargetUserId = parseInt(sessionStorage.getItem('targetUserId') || '1');
+          setTargetUserId(savedTargetUserId);
+          setTargetUserName(sessionStorage.getItem('targetUserName') || '用户' + savedTargetUserId);
+          await fetchAutoStatusForUser(savedTargetUserId);
+        }
+        // 数据加载完成后再切换模式
         setConfigMode(mode);
-        // 刷新所有数据
-        await Promise.all([getOptions(), fetchAutoStatus()]);
         showSuccess('配置模式已切换为' + (mode === 'global' ? '全局配置' : '个人配置'));
       } else {
         showError(res.data.message);
       }
     } catch (e) {
       showError(e.message);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -207,15 +228,17 @@ const OperationSetting = () => {
           enabled: data.enabled || { manual: false, auto: false, dedup: true, gpu: false },
           hasPersonalConfig: data.has_personal_config || false,
         });
-        // 更新 inputs 中的并发配置
-        if (data.enabled) {
-          setInputs(prev => ({
-            ...prev,
-            EnableManualConcurrencyLimit: data.enabled.manual ? 'true' : 'false',
-            EnableAutoConcurrencyLimit: data.enabled.auto ? 'true' : 'false',
-            UserBaseConcurrentLimit: data.manual_limit || 5,
-          }));
-        }
+        // 更新 inputs 中的并发配置（无论是否有个人配置，都使用 API 返回的值）
+        setInputs(prev => ({
+          ...prev,
+          EnableManualConcurrencyLimit: data.enabled?.manual ? 'true' : 'false',
+          EnableAutoConcurrencyLimit: data.enabled?.auto ? 'true' : 'false',
+          EnableRequestDeduplication: data.enable_request_dedup ? 'true' : 'false',
+          UserBaseConcurrentLimit: data.manual_limit || 5,
+          ConcurrencyWaitTimeout: data.wait_timeout || 30,
+          ConcurrencyCheckInterval: data.check_interval || 100,
+          RequestCacheTTL: data.cache_ttl || 30,
+        }));
       } else {
         showError(data.message || '获取用户配置失败');
       }
@@ -246,6 +269,19 @@ const OperationSetting = () => {
           enabled: data.enabled || { manual: false, auto: false, dedup: true, gpu: false },
           hasPersonalConfig: data.has_personal_config || false,
         });
+        // 如果有个人配置，更新 inputs 中的并发配置
+        if (data.has_personal_config) {
+          setInputs(prev => ({
+            ...prev,
+            EnableManualConcurrencyLimit: data.enabled?.manual ? 'true' : 'false',
+            EnableAutoConcurrencyLimit: data.enabled?.auto ? 'true' : 'false',
+            EnableRequestDeduplication: data.enable_request_dedup ? 'true' : 'false',
+            UserBaseConcurrentLimit: data.manual_limit || 5,
+            ConcurrencyWaitTimeout: data.wait_timeout || 30,
+            ConcurrencyCheckInterval: data.check_interval || 100,
+            RequestCacheTTL: data.cache_ttl || 30,
+          }));
+        }
       }
     } catch (e) {
       // 忽略错误
@@ -255,16 +291,19 @@ const OperationSetting = () => {
   // 搜索用户
   const searchUsers = async (keyword) => {
     const searchKeyword = keyword || userSearchKeyword;
-    if (!searchKeyword.trim()) {
-      setSearchResults([]);
-      return;
-    }
     setSearchLoading(true);
     try {
       const res = await API.get(`/api/user/search?keyword=${encodeURIComponent(searchKeyword)}`);
       const { success, data } = res.data;
       if (success && data) {
-        setSearchResults(data.slice(0, 10)); // 最多显示10个结果
+        // 转换为 Select 组件需要的格式
+        setSearchResults(data.slice(0, 20).map(user => ({
+          key: user.id,
+          text: `${user.username} (ID: ${user.id})`,
+          value: user.id,
+          username: user.username,
+          email: user.email,
+        })));
       } else {
         setSearchResults([]);
       }
@@ -275,64 +314,57 @@ const OperationSetting = () => {
   };
 
   // 选择搜索结果中的用户
-  const selectUser = (user) => {
+  const selectUser = async (user) => {
     setUserSearchKeyword('');
-    setSearchResults([]);
-    if (user.id === currentUserId) {
-      // 选择当前用户，重置目标用户ID
-      setTargetUserId(0);
-      setTargetUserName('');
-      sessionStorage.setItem('targetUserId', '0');
-      sessionStorage.setItem('targetUserName', '');
-      fetchAutoStatus(); // 刷新当前用户状态
-    } else {
-      // 选择其他用户
-      setTargetUserId(user.id);
-      setTargetUserName(user.username || `用户${user.id}`);
-      sessionStorage.setItem('targetUserId', String(user.id));
-      sessionStorage.setItem('targetUserName', user.username || `用户${user.id}`);
-      if (isAdmin) {
-        fetchAutoStatusForUser(user.id);
-      }
-    }
+    setTargetUserId(user.value);
+    setTargetUserName(user.username || `用户${user.value}`);
+    sessionStorage.setItem('targetUserId', String(user.value));
+    sessionStorage.setItem('targetUserName', user.username || `用户${user.value}`);
+
+    // 直接获取该用户的个人配置
+    await fetchAutoStatusForUser(user.value);
   };
 
   // 自动刷新状态（当自动并发启用时）
   useEffect(() => {
     if (inputs.EnableAutoConcurrencyLimit === 'true') {
-      const interval = setInterval(fetchAutoStatus, 5000);
+      const interval = setInterval(() => {
+        if (configMode === 'personal' && targetUserId !== 0) {
+          // 个人模式：刷新目标用户的配置
+          fetchAutoStatusForUser(targetUserId);
+        } else {
+          // 全局模式：刷新全局配置
+          fetchAutoStatus();
+        }
+      }, 5000);
       return () => clearInterval(interval);
     }
-  }, [inputs.EnableAutoConcurrencyLimit]);
+  }, [inputs.EnableAutoConcurrencyLimit, configMode, targetUserId]);
 
   // 恢复默认参数
   const resetToDefaults = async () => {
     setLoading(true);
     try {
       if (configMode === 'global') {
-        // 调用全局重置
+        // 全局模式：重置全局配置
         const res = await API.post('/api/system/concurrency-reset');
         const { success, message } = res.data;
         if (success) {
           showSuccess(message);
-          // 重新加载配置
           await getOptions();
+          await fetchAutoStatus();
         } else {
           showError(message);
         }
       } else {
-        // 删除个人配置（使用户恢复使用全局配置）
-        const resetUserId = targetUserId || currentUserId;
-        const resetEndpoint = isAdmin && resetUserId !== currentUserId
-          ? `/api/user/concurrency/${resetUserId}`  // 管理员重置其他用户
-          : '/api/user/concurrency';
-
+        // 个人模式：删除目标用户的个人配置
+        const resetEndpoint = `/api/user/concurrency/${targetUserId}`;
         const res = await API.delete(resetEndpoint);
         const { success, message } = res.data;
         if (success) {
           showSuccess(message);
-          // 删除后切换到全局模式，使用户真正使用全局配置
-          await setConfigModeAPI('global');
+          // 重新获取该用户的配置（现在会使用全局值）
+          await fetchAutoStatusForUser(targetUserId);
         } else {
           showError(message);
         }
@@ -454,10 +486,19 @@ const OperationSetting = () => {
     if (name.endsWith('Enabled')) {
       // Checkbox 的 value 是静态的，用 checked 代替
       const newValue = checked !== undefined ? String(checked) : value;
-      await updateOption(name, newValue);
+      // 全局模式下开关配置自动保存
+      if (configMode === 'global') {
+        await updateOption(name, newValue);
+      } else {
+        setInputs((inputs) => ({ ...inputs, [name]: newValue }));
+      }
     } else if (name.includes('FactorWeight') || name.includes('Thresholds')) {
-      // 因子权重和阈值配置自动保存
-      await updateOption(name, value);
+      // 因子权重和阈值配置仅在全局模式下自动保存
+      if (configMode === 'global') {
+        await updateOption(name, value);
+      } else {
+        setInputs((inputs) => ({ ...inputs, [name]: value }));
+      }
     } else {
       setInputs((inputs) => ({ ...inputs, [name]: value }));
     }
@@ -466,7 +507,6 @@ const OperationSetting = () => {
   // Checkbox 专用处理函数（备用，用于内联 onChange）
   const handleCheckboxChange = async (name, checked) => {
     const newValue = String(checked);
-    console.log('Checkbox change:', name, '=', newValue);  // 调试日志
     await updateOption(name, newValue);
   };
 
@@ -495,13 +535,6 @@ const OperationSetting = () => {
         if (configMode === 'global') {
           // 全局配置模式：保存到 options 表
           let saveSuccess = true;
-          if (originInputs['EnableConcurrencyLimit'] !== inputs.EnableConcurrencyLimit) {
-            try {
-              await updateOption('EnableConcurrencyLimit', inputs.EnableConcurrencyLimit);
-            } catch (e) {
-              saveSuccess = false;
-            }
-          }
           if (originInputs['UserBaseConcurrentLimit'] !== inputs.UserBaseConcurrentLimit) {
             try {
               await updateOption('UserBaseConcurrentLimit', inputs.UserBaseConcurrentLimit);
@@ -570,19 +603,21 @@ const OperationSetting = () => {
             showSuccess('并发配置已保存');
           }
         } else {
-          // 个人配置模式：保存到用户并发配置
-          const saveUserId = targetUserId || currentUserId;
-          const saveEndpoint = isAdmin && saveUserId !== currentUserId
-            ? `/api/user/concurrency/${saveUserId}`
-            : '/api/user/concurrency';
+          // 个人配置模式：保存到目标用户的并发配置
+          const saveEndpoint = `/api/user/concurrency/${targetUserId}`;
 
           await API.put(saveEndpoint, {
             max_concurrent: parseInt(inputs.UserBaseConcurrentLimit) || 5,
             enable_auto_limit: inputs.EnableAutoConcurrencyLimit === 'true',
             status: inputs.EnableManualConcurrencyLimit === 'true' ? 1 : 2,
+            wait_timeout: parseInt(inputs.ConcurrencyWaitTimeout) || 30,
+            check_interval: parseInt(inputs.ConcurrencyCheckInterval) || 100,
+            cache_ttl: parseInt(inputs.RequestCacheTTL) || 30,
+            enable_request_dedup: inputs.EnableRequestDeduplication === 'true',
           });
-          showSuccess(`用户 ${saveUserId} 的个人配置已保存`);
-          await fetchAutoStatus();
+          showSuccess(`用户 ${targetUserId} 的个人配置已保存`);
+          // 重新获取该用户的配置
+          await fetchAutoStatusForUser(targetUserId);
         }
         break;
       case 'ratio':
@@ -853,99 +888,60 @@ const OperationSetting = () => {
           <Divider />
           <Header as='h3'>{t('setting.operation.concurrency.title')}</Header>
 
-          {/* 配置模式切换 */}
-          <div style={{ marginBottom: '15px', padding: '12px', backgroundColor: '#fff3cd', borderRadius: '6px', border: '1px solid #ffc107' }}>
-            <Form.Group inline>
-              <label style={{ marginRight: '10px', fontWeight: 'bold' }}>配置模式:</label>
-              <Form.Checkbox
-                checked={configMode === 'global'}
-                label='全局配置'
-                onChange={() => setConfigModeAPI('global')}
+          {/* 配置模式切换 + 用户选择（并列显示） */}
+          <div style={{ padding: '12px', backgroundColor: '#fff3cd', borderRadius: '6px', border: '1px solid #ffc107' }}>
+            <Form.Group widths='equal'>
+              <Form.Select
+                label='配置模式'
+                options={[
+                  { key: 'global', text: '全局配置', value: 'global' },
+                  { key: 'personal', text: '个人配置', value: 'personal' },
+                ]}
+                value={configMode}
+                onChange={(e, { value }) => setConfigModeAPI(value)}
+                style={{ minWidth: '150px' }}
               />
-              <Form.Checkbox
-                checked={configMode === 'personal'}
-                label='个人配置'
-                onChange={() => setConfigModeAPI('personal')}
-              />
+              {/* 用户选择（仅 personal 模式显示，参考自动渠道选择实现） */}
+              {configMode === 'personal' && isRoot && (
+                <Form.Select
+                  label='目标用户'
+                  options={searchResults}
+                  placeholder={targetUserName ? `${targetUserName} (ID: ${targetUserId})` : `用户${targetUserId}`}
+                  value={targetUserId}
+                  onChange={(e, { value }) => {
+                    const user = searchResults.find(u => u.value === value);
+                    if (user) selectUser(user);
+                  }}
+                  onSearchChange={(e, { searchQuery }) => {
+                    setUserSearchKeyword(searchQuery);
+                    searchUsers(searchQuery);
+                  }}
+                  onOpen={() => {
+                    // 打开时加载所有用户
+                    if (searchResults.length === 0) {
+                      searchUsers('');
+                    }
+                  }}
+                  selection
+                  search
+                  scrolling
+                  loading={searchLoading}
+                  style={{ minWidth: '200px' }}
+                />
+              )}
+              {configMode === 'personal' && !isRoot && (
+                <Form.Input
+                  label='目标用户'
+                  value={`用户 ${currentUserId}`}
+                  disabled
+                  style={{ minWidth: '200px' }}
+                />
+              )}
             </Form.Group>
-            {configMode === 'personal' && (
-              <Form.Group inline style={{ marginTop: '8px' }}>
-                {isAdmin && (
-                  <>
-                    <div style={{ position: 'relative' }}>
-                      <Form.Input
-                        label='搜索用户'
-                        value={userSearchKeyword}
-                        onChange={(e, { value }) => {
-                          setUserSearchKeyword(value);
-                          // 自动搜索
-                          if (value.length >= 1) {
-                            searchUsers(value);
-                          } else {
-                            setSearchResults([]);
-                          }
-                        }}
-                        placeholder='输入用户名或ID搜索'
-                        style={{ width: '250px' }}
-                      />
-                      {/* 搜索结果下拉 */}
-                      {searchResults.length > 0 && (
-                        <div style={{
-                          position: 'absolute',
-                          top: '100%',
-                          left: 0,
-                          zIndex: 1000,
-                          backgroundColor: 'white',
-                          border: '1px solid #ddd',
-                          borderRadius: '4px',
-                          boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
-                          maxHeight: '200px',
-                          overflowY: 'auto',
-                          width: '100%',
-                        }}>
-                          {searchResults.map((user) => (
-                            <div
-                              key={user.id}
-                              onClick={() => selectUser(user)}
-                              style={{
-                                padding: '8px 12px',
-                                cursor: 'pointer',
-                                borderBottom: '1px solid #eee',
-                              }}
-                              onMouseEnter={(e) => e.target.style.backgroundColor = '#f5f5f5'}
-                              onMouseLeave={(e) => e.target.style.backgroundColor = 'white'}
-                            >
-                              <div style={{ fontWeight: 'bold' }}>{user.username}</div>
-                              <div style={{ fontSize: '12px', color: '#666' }}>
-                                ID: {user.id} {user.email ? `| ${user.email}` : ''} {user.remark ? `| ${user.remark}` : ''}
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  </>
-                )}
-                {!isAdmin && (
-                  <span style={{ color: '#666', fontSize: '14px' }}>
-                    当前用户ID: {currentUserId}
-                  </span>
-                )}
-              </Form.Group>
-            )}
-            {configMode === 'personal' && targetUserId !== 0 && targetUserId !== currentUserId && (
-              <div style={{ marginTop: '5px', fontSize: '12px', color: '#d39e00' }}>
-                <b>注意:</b> 正在查看/编辑用户 {targetUserName || targetUserId} (ID: {targetUserId}) 的个人配置
-              </div>
-            )}
-            {configMode === 'personal' && (
-              <div style={{ marginTop: '5px', fontSize: '12px', color: '#666' }}>
-                {!autoStatus.hasPersonalConfig && (
-                  <div style={{ marginBottom: '5px', color: '#dc3545' }}>
-                    <b>提示:</b> 该用户未配置个人并发设置，当前使用全局配置
-                  </div>
-                )}
-                <b>说明:</b> 个人配置仅支持最大并发数、自动限制开关、状态设置，其他配置项（权重、GPU等）使用全局值
+            {/* 提示信息（单独一行显示） */}
+            {configMode === 'personal' && !autoStatus.hasPersonalConfig && (
+              <div style={{ color: '#dc3545', fontSize: '12px', marginTop: '8px', marginLeft: '4px' }}>
+                该用户未配置个人并发设置，当前使用全局配置
               </div>
             )}
           </div>
@@ -1057,92 +1053,96 @@ const OperationSetting = () => {
                   </div>
                 </div>
 
-                {/* 因子权重配置 */}
-                <div style={{ marginTop: '15px' }}>
-                  <b style={{ display: 'block', marginBottom: '10px' }}>{t('setting.operation.concurrency.factor_weights')} <small style={{ fontWeight: 'normal', color: '#666' }}>(权重百分比)</small></b>
-                  <Form.Group widths={4}>
-                    <Form.Input
-                      label={t('setting.operation.concurrency.factor_duration') + ' (%)'}
-                      name='DurationFactorWeight'
-                      onChange={handleInputChange}
-                      value={inputs.DurationFactorWeight}
-                      type='number'
-                      min='0'
-                      max='100'
-                    />
-                    <Form.Input
-                      label={t('setting.operation.concurrency.factor_concurrent') + ' (%)'}
-                      name='ConcurrentFactorWeight'
-                      onChange={handleInputChange}
-                      value={inputs.ConcurrentFactorWeight}
-                      type='number'
-                      min='0'
-                      max='100'
-                    />
-                    <Form.Input
-                      label={t('setting.operation.concurrency.factor_trend') + ' (%)'}
-                      name='TrendFactorWeight'
-                      onChange={handleInputChange}
-                      value={inputs.TrendFactorWeight}
-                      type='number'
-                      min='0'
-                      max='100'
-                    />
-                    <Form.Input
-                      label={t('setting.operation.concurrency.factor_gpu') + ' (%)'}
-                      name='GPUFactorWeight'
-                      onChange={handleInputChange}
-                      value={inputs.GPUFactorWeight}
-                      type='number'
-                      min='0'
-                      max='100'
-                    />
-                  </Form.Group>
-                </div>
+                {/* 因子权重配置（仅全局模式显示） */}
+                {configMode === 'global' && (
+                  <div style={{ marginTop: '15px' }}>
+                    <b style={{ display: 'block', marginBottom: '10px' }}>{t('setting.operation.concurrency.factor_weights')} <small style={{ fontWeight: 'normal', color: '#666' }}>(权重百分比)</small></b>
+                    <Form.Group widths={4}>
+                      <Form.Input
+                        label={t('setting.operation.concurrency.factor_duration') + ' (%)'}
+                        name='DurationFactorWeight'
+                        onChange={handleInputChange}
+                        value={inputs.DurationFactorWeight}
+                        type='number'
+                        min='0'
+                        max='100'
+                      />
+                      <Form.Input
+                        label={t('setting.operation.concurrency.factor_concurrent') + ' (%)'}
+                        name='ConcurrentFactorWeight'
+                        onChange={handleInputChange}
+                        value={inputs.ConcurrentFactorWeight}
+                        type='number'
+                        min='0'
+                        max='100'
+                      />
+                      <Form.Input
+                        label={t('setting.operation.concurrency.factor_trend') + ' (%)'}
+                        name='TrendFactorWeight'
+                        onChange={handleInputChange}
+                        value={inputs.TrendFactorWeight}
+                        type='number'
+                        min='0'
+                        max='100'
+                      />
+                      <Form.Input
+                        label={t('setting.operation.concurrency.factor_gpu') + ' (%)'}
+                        name='GPUFactorWeight'
+                        onChange={handleInputChange}
+                        value={inputs.GPUFactorWeight}
+                        type='number'
+                        min='0'
+                        max='100'
+                      />
+                    </Form.Group>
+                  </div>
+                )}
 
               </>
             )}
           </div>
 
-          {/* GPU监控配置 */}
-          <div style={{ marginBottom: '20px', padding: '15px', backgroundColor: '#f8f9fa', borderRadius: '8px', border: '1px solid #e9ecef' }}>
-            <Form.Group inline>
-              <Form.Checkbox
-                checked={inputs.EnableGPUMonitoring === 'true'}
-                label={t('setting.operation.concurrency.gpu_monitoring_enable')}
-                onChange={() => handleCheckboxChange('EnableGPUMonitoring', inputs.EnableGPUMonitoring !== 'true')}
-              />
-            </Form.Group>
-            {inputs.EnableGPUMonitoring === 'true' && (
-              <Form.Group widths={3} style={{ marginTop: '12px' }}>
-                <Form.Input
-                  label={t('setting.operation.concurrency.vllm_api_url')}
-                  name='VLLMAPIURL'
-                  onChange={handleInputChange}
-                  value={inputs.VLLMAPIURL}
-                  type='url'
-                />
-                <Form.Input
-                  label={t('setting.operation.concurrency.gpu_kv_warn')}
-                  name='GPUKVCacheWarn'
-                  onChange={handleInputChange}
-                  value={inputs.GPUKVCacheWarn}
-                  type='number'
-                  min='0'
-                  max='100'
-                />
-                <Form.Input
-                  label={t('setting.operation.concurrency.gpu_kv_max')}
-                  name='GPUKVCacheMax'
-                  onChange={handleInputChange}
-                  value={inputs.GPUKVCacheMax}
-                  type='number'
-                  min='0'
-                  max='100'
+          {/* GPU监控配置（仅全局模式显示） */}
+          {configMode === 'global' && (
+            <div style={{ marginBottom: '20px', padding: '15px', backgroundColor: '#f8f9fa', borderRadius: '8px', border: '1px solid #e9ecef' }}>
+              <Form.Group inline>
+                <Form.Checkbox
+                  checked={inputs.EnableGPUMonitoring === 'true'}
+                  label={t('setting.operation.concurrency.gpu_monitoring_enable')}
+                  onChange={() => handleCheckboxChange('EnableGPUMonitoring', inputs.EnableGPUMonitoring !== 'true')}
                 />
               </Form.Group>
-            )}
-          </div>
+              {inputs.EnableGPUMonitoring === 'true' && (
+                <Form.Group widths={3} style={{ marginTop: '12px' }}>
+                  <Form.Input
+                    label={t('setting.operation.concurrency.vllm_api_url')}
+                    name='VLLMAPIURL'
+                    onChange={handleInputChange}
+                    value={inputs.VLLMAPIURL}
+                    type='url'
+                  />
+                  <Form.Input
+                    label={t('setting.operation.concurrency.gpu_kv_warn')}
+                    name='GPUKVCacheWarn'
+                    onChange={handleInputChange}
+                    value={inputs.GPUKVCacheWarn}
+                    type='number'
+                    min='0'
+                    max='100'
+                  />
+                  <Form.Input
+                    label={t('setting.operation.concurrency.gpu_kv_max')}
+                    name='GPUKVCacheMax'
+                    onChange={handleInputChange}
+                    value={inputs.GPUKVCacheMax}
+                    type='number'
+                    min='0'
+                    max='100'
+                  />
+                </Form.Group>
+              )}
+            </div>
+          )}
 
           <Form.Group>
             <Form.Button

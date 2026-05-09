@@ -111,13 +111,14 @@ func (l *UserConcurrencyLimiter) GetAllStats() (map[int]int, error) {
 	return counter.GetAll(), nil
 }
 
-// 获取用户的并发限制
+// 获取用户的并发限制（个人配置优先，无则使用全局配置）
 func (l *UserConcurrencyLimiter) getUserLimit(userId int) int {
-	userConfig, err := model.GetOrCreateUserConcurrencyConfig(userId)
-	if err != nil || userConfig == nil {
-		return getConfigInt("UserBaseConcurrentLimit", config.UserBaseConcurrentLimit)
+	userConfig, err := model.GetUserConcurrencyConfig(userId)
+	if err == nil && userConfig != nil {
+		return userConfig.MaxConcurrent
 	}
-	return userConfig.MaxConcurrent
+	// 无个人配置，使用全局配置
+	return getConfigInt("UserBaseConcurrentLimit", config.UserBaseConcurrentLimit)
 }
 
 // 检查用户是否启用了自动限制
@@ -236,4 +237,43 @@ func (l *UserConcurrencyLimiter) SetConcurrent(userId int, count int) error {
 // IsGlobalEnabled 返回全局并发限制是否启用
 func IsGlobalEnabled() bool {
 	return isGlobalConcurrencyEnabled()
+}
+
+// EffectiveConcurrencyConfig 有效配置结构（个人优先，无则全局）
+type EffectiveConcurrencyConfig struct {
+	UsePersonalConfig   bool
+	MaxConcurrent       int
+	EnableAutoLimit     bool
+	Status              int
+	WaitTimeout         int
+	CheckInterval       int
+	CacheTTL            int
+	EnableRequestDedup  bool
+}
+
+// GetEffectiveConcurrencyConfig 获取有效的并发配置（个人优先，无则全局）
+func (l *UserConcurrencyLimiter) GetEffectiveConcurrencyConfig(userId int) *EffectiveConcurrencyConfig {
+	personalConfig, _ := model.GetUserConcurrencyConfig(userId)
+	result := &EffectiveConcurrencyConfig{UsePersonalConfig: personalConfig != nil}
+
+	if personalConfig != nil {
+		result.MaxConcurrent = personalConfig.MaxConcurrent
+		result.EnableAutoLimit = personalConfig.EnableAutoLimit
+		result.Status = personalConfig.Status
+		result.WaitTimeout = personalConfig.WaitTimeout
+		result.CheckInterval = personalConfig.CheckInterval
+		result.CacheTTL = personalConfig.CacheTTL
+		result.EnableRequestDedup = personalConfig.EnableRequestDedup
+	} else {
+		// 使用全局配置
+		result.MaxConcurrent = getConfigInt("UserBaseConcurrentLimit", config.UserBaseConcurrentLimit)
+		result.EnableAutoLimit = config.OptionMap["EnableAutoConcurrencyLimit"] == "true"
+		result.Status = model.UserConcurrencyStatusNormal
+		result.WaitTimeout = getConfigInt("ConcurrencyWaitTimeout", config.ConcurrencyWaitTimeout)
+		result.CheckInterval = getConfigInt("ConcurrencyCheckInterval", config.ConcurrencyCheckInterval)
+		result.CacheTTL = getConfigInt("RequestCacheTTL", config.RequestCacheTTL)
+		result.EnableRequestDedup = getConfigBool("EnableRequestDeduplication", config.EnableRequestDeduplication)
+	}
+
+	return result
 }

@@ -262,11 +262,16 @@ func GetAutoConcurrencyLimit(c *gin.Context) {
 		configMode = "global"
 	}
 
-	// 根据配置模式决定 baseLimit 来源
+	// 根据配置模式决定配置来源
 	baseLimit := concurrency.GetCurrentConfigInt("UserBaseConcurrentLimit", config.UserBaseConcurrentLimit)
 	manualEnabled := config.OptionMap["EnableManualConcurrencyLimit"] == "true"
 	autoEnabled := config.OptionMap["EnableAutoConcurrencyLimit"] == "true"
 	hasPersonalConfig := false
+	// 新增的个人配置字段（默认使用全局值）
+	waitTimeout := concurrency.GetCurrentConfigInt("ConcurrencyWaitTimeout", config.ConcurrencyWaitTimeout)
+	checkInterval := concurrency.GetCurrentConfigInt("ConcurrencyCheckInterval", config.ConcurrencyCheckInterval)
+	cacheTTL := concurrency.GetCurrentConfigInt("RequestCacheTTL", config.RequestCacheTTL)
+	dedupEnabled := concurrency.GetCurrentConfigBool("EnableRequestDeduplication", config.EnableRequestDeduplication)
 
 	if configMode == "personal" {
 		// 个人配置模式：优先使用用户个人配置
@@ -279,10 +284,15 @@ func GetAutoConcurrencyLimit(c *gin.Context) {
 			baseLimit = existingConfig.MaxConcurrent
 			manualEnabled = existingConfig.Status == model.UserConcurrencyStatusNormal
 			autoEnabled = existingConfig.EnableAutoLimit
+			// 从个人配置读取新字段
+			waitTimeout = existingConfig.WaitTimeout
+			checkInterval = existingConfig.CheckInterval
+			cacheTTL = existingConfig.CacheTTL
+			dedupEnabled = existingConfig.EnableRequestDedup
 		}
 		// 如果没有个人配置，hasPersonalConfig 为 false，前端会显示提示
 	}
-	// configMode == "global" 时，baseLimit 直接使用全局配置（从 OptionMap 读取）
+	// configMode == "global" 时，配置直接使用全局值（从 OptionMap 读取）
 
 	// 获取用户当前并发数
 	limiter := concurrency.GetLimiter()
@@ -311,7 +321,6 @@ func GetAutoConcurrencyLimit(c *gin.Context) {
 
 	// 从 OptionMap 获取最新的配置值
 	gpuEnabled := config.OptionMap["EnableGPUMonitoring"] == "true"
-	dedupEnabled := config.OptionMap["EnableRequestDeduplication"] == "true"
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
@@ -325,6 +334,10 @@ func GetAutoConcurrencyLimit(c *gin.Context) {
 			"actual_limit":        minDynamicLimit(dynamicLimit, baseLimit),
 			"load_level":          loadLevel,
 			"current_concurrent":  currentConcurrent,
+			"wait_timeout":        waitTimeout,
+			"check_interval":      checkInterval,
+			"cache_ttl":           cacheTTL,
+			"enable_request_dedup": dedupEnabled,
 			"factors": gin.H{
 				"duration":   durationFactor,
 				"concurrent": concurrentFactor,
@@ -465,15 +478,27 @@ func GetAutoConcurrencyLimitForUser(c *gin.Context) {
 		return
 	}
 
-	// 检查用户是否有个人配置（先用 GetUserConcurrencyConfig 而不是 GetOrCreate）
+	// 检查用户是否有个人配置（只用 GetUserConcurrencyConfig，不自动创建）
 	existingConfig, _ := model.GetUserConcurrencyConfig(targetUserId)
 	hasPersonalConfig := existingConfig != nil
 
-	// 获取目标用户的并发配置
-	userConfig, _ := model.GetOrCreateUserConcurrencyConfig(targetUserId)
+	// 获取目标用户的并发配置（优先个人配置，否则使用全局配置）
 	baseLimit := concurrency.GetCurrentConfigInt("UserBaseConcurrentLimit", config.UserBaseConcurrentLimit)
-	if userConfig != nil {
-		baseLimit = userConfig.MaxConcurrent
+	manualEnabled := config.OptionMap["EnableManualConcurrencyLimit"] == "true"
+	autoEnabled := config.OptionMap["EnableAutoConcurrencyLimit"] == "true"
+	waitTimeout := concurrency.GetCurrentConfigInt("ConcurrencyWaitTimeout", config.ConcurrencyWaitTimeout)
+	checkInterval := concurrency.GetCurrentConfigInt("ConcurrencyCheckInterval", config.ConcurrencyCheckInterval)
+	cacheTTL := concurrency.GetCurrentConfigInt("RequestCacheTTL", config.RequestCacheTTL)
+	dedupEnabled := concurrency.GetCurrentConfigBool("EnableRequestDeduplication", config.EnableRequestDeduplication)
+
+	if existingConfig != nil {
+		baseLimit = existingConfig.MaxConcurrent
+		manualEnabled = existingConfig.Status == model.UserConcurrencyStatusNormal
+		autoEnabled = existingConfig.EnableAutoLimit
+		waitTimeout = existingConfig.WaitTimeout
+		checkInterval = existingConfig.CheckInterval
+		cacheTTL = existingConfig.CacheTTL
+		dedupEnabled = existingConfig.EnableRequestDedup
 	}
 
 	// 获取目标用户当前并发数
@@ -493,22 +518,23 @@ func GetAutoConcurrencyLimitForUser(c *gin.Context) {
 
 	// 从 OptionMap 获取最新的配置值
 	gpuEnabled := config.OptionMap["EnableGPUMonitoring"] == "true"
-	dedupEnabled := config.OptionMap["EnableRequestDeduplication"] == "true"
-	manualEnabled := config.OptionMap["EnableManualConcurrencyLimit"] == "true"
-	autoEnabled := config.OptionMap["EnableAutoConcurrencyLimit"] == "true"
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",
 		"data": gin.H{
-			"target_user_id":     targetUserId,
-			"config_mode":        "personal",
+			"target_user_id":      targetUserId,
+			"config_mode":         "personal",
 			"has_personal_config": hasPersonalConfig,
-			"dynamic_limit":      dynamicLimit,
-			"manual_limit":       baseLimit,
-			"actual_limit":       minDynamicLimit(dynamicLimit, baseLimit),
-			"load_level":         loadLevel,
-			"current_concurrent": currentConcurrent,
+			"dynamic_limit":       dynamicLimit,
+			"manual_limit":        baseLimit,
+			"actual_limit":        minDynamicLimit(dynamicLimit, baseLimit),
+			"load_level":          loadLevel,
+			"current_concurrent":  currentConcurrent,
+			"wait_timeout":        waitTimeout,
+			"check_interval":      checkInterval,
+			"cache_ttl":           cacheTTL,
+			"enable_request_dedup": dedupEnabled,
 			"factors": gin.H{
 				"duration":   concurrency.CalculateDurationFactor(metrics.AvgRequestDuration),
 				"concurrent": concurrency.CalculateConcurrentFactor(currentConcurrent, baseLimit),
