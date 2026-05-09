@@ -230,6 +230,9 @@ docker-compose ps
 2、cd /home/bmc/sd1/CODE/one-api && go mod download && go build -ldflags "-s -w" -o one-api
 3、fuser -k 3009/tcp 2>/dev/null; sleep 1 && chmod u+x one-api && SQL_DSN="postgres://postgres:NCbmc%40123@localhost:5432/oneapi?sslmode=disable" ./one-api --port 3009 --log-dir ./logs
 
+### api访问方式
+curl --noproxy '*' -s "localhost:3009/api/system/auto-concurrency-limit" -H "Authorization: Bearer 29700412484b44808b96bf86774fa746" | jq .
+
 ### 数据库访问方法
 python3 -c "
 import psycopg2

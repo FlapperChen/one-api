@@ -310,20 +310,11 @@ func (e *LoadEvaluator) RefreshMetrics() {
 	failRate := monitor.GetSystemFailRate()
 	successRate := 1.0 - failRate
 
+	// 全局模式：使用所有用户请求时长前十名的平均值
 	var avgResponseTime int64 = 1000
-	channels, err := model.GetAllChannels(0, 1000, "all")
-	if err == nil && len(channels) > 0 {
-		var totalRT int64
-		var validCount int
-		for _, ch := range channels {
-			if ch.Status == model.ChannelStatusEnabled && ch.ResponseTime > 0 {
-				totalRT += int64(ch.ResponseTime)
-				validCount++
-			}
-		}
-		if validCount > 0 {
-			avgResponseTime = totalRT / int64(validCount)
-		}
+	avgResponseTime, _ = model.GetTop10AvgElapsedTime()
+	if avgResponseTime == 0 {
+		avgResponseTime = 1000 // 默认值
 	}
 
 	var gpuKVCacheUsage float64
@@ -342,6 +333,22 @@ func (e *LoadEvaluator) RefreshMetrics() {
 		ErrorCount:         int64(float64(monitor.GetTotalRequestCount()) * failRate),
 		RunningRequests:    0,
 	})
+}
+
+// GetUserAvgElapsedTime 获取指定用户的平均响应时长
+// 优先使用用户最近一次请求时长，无记录则返回全局平均值
+func (e *LoadEvaluator) GetUserAvgElapsedTime(userId int) int64 {
+	// 先尝试获取用户最近一次请求时长
+	elapsed, err := model.GetUserLastRequestElapsedTime(userId)
+	if err == nil && elapsed > 0 {
+		return elapsed
+	}
+	// 无记录，返回全局前十名平均值
+	avgGlobal, _ := model.GetTop10AvgElapsedTime()
+	if avgGlobal == 0 {
+		return 1000 // 默认值
+	}
+	return avgGlobal
 }
 
 // 获取用户级别的负载信息

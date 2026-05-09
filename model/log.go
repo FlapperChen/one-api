@@ -249,3 +249,44 @@ func SearchLogsByDayAndModel(userId, start, end int) (LogStatistics []*LogStatis
 
 	return LogStatistics, err
 }
+
+// GetTop10AvgElapsedTime 获取Top10用户最近一次请求时长的平均值
+// 只统计消费类型日志 (type=LogTypeConsume)，返回毫秒
+func GetTop10AvgElapsedTime() (int64, error) {
+	type Result struct {
+		AvgElapsed float64
+	}
+	var result Result
+	// 子查询：获取每个用户最近一次请求时长
+	subQuery := LOG_DB.Model(&Log{}).
+		Select("user_id, MAX(created_at) as latest_time").
+		Where("type = ? AND elapsed_time > 0", LogTypeConsume).
+		Group("user_id")
+	// 再关联获取每个用户最近一次请求的具体时长，按时长降序取前10
+	latestQuery := LOG_DB.Table("(?) as latest", subQuery).
+		Select("l.elapsed_time").
+		Joins("JOIN logs l ON l.user_id = latest.user_id AND l.created_at = latest.latest_time AND l.type = ? AND l.elapsed_time > 0", LogTypeConsume).
+		Order("l.elapsed_time DESC").
+		Limit(10)
+	// 外层查询：计算这10条记录的平均值
+	err := LOG_DB.Table("(?) as t", latestQuery).
+		Select("AVG(elapsed_time) as avg_elapsed").
+		Scan(&result).Error
+	if err != nil {
+		return 0, err
+	}
+	return int64(result.AvgElapsed), nil
+}
+
+// GetUserLastRequestElapsedTime 获取用户最近一次请求的时长（毫秒）
+func GetUserLastRequestElapsedTime(userId int) (int64, error) {
+	var log Log
+	err := LOG_DB.Where("user_id = ? AND type = ? AND elapsed_time > 0", userId, LogTypeConsume).
+		Order("created_at DESC").
+		Select("elapsed_time").
+		First(&log).Error
+	if err != nil {
+		return 0, err
+	}
+	return log.ElapsedTime, nil
+}

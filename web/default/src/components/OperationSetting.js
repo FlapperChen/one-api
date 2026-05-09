@@ -88,6 +88,7 @@ const OperationSetting = () => {
   let [searchResults, setSearchResults] = useState([]); // 搜索结果
   let [searchLoading, setSearchLoading] = useState(false); // 搜索加载状态
   let [targetUserName, setTargetUserName] = useState(sessionStorage.getItem('targetUserName') || ''); // 目标用户名称
+  let [globalConcurrencyInputs, setGlobalConcurrencyInputs] = useState(null); // 全局并发配置缓存（备用）
 
   const getOptions = async () => {
     const res = await API.get('/api/option/');
@@ -161,7 +162,9 @@ const OperationSetting = () => {
           await getOptions();
           await fetchAutoStatus();
         } else {
-          // 个人模式：加载目标用户配置
+          // 个人模式：先初始化 inputs，再获取全局配置缓存，最后加载目标用户配置
+          await getOptions();
+          await fetchAutoStatus();
           const savedTargetUserId = parseInt(sessionStorage.getItem('targetUserId') || '1');
           setTargetUserId(savedTargetUserId);
           setTargetUserName(sessionStorage.getItem('targetUserName') || '用户' + savedTargetUserId);
@@ -187,7 +190,9 @@ const OperationSetting = () => {
           await getOptions();
           await fetchAutoStatus();
         } else {
-          // 个人模式：加载目标用户的配置（优先使用 sessionStorage 中保存的用户）
+          // 个人模式：先初始化 inputs，再获取全局配置缓存，最后加载目标用户配置
+          await getOptions();
+          await fetchAutoStatus();
           const savedTargetUserId = parseInt(sessionStorage.getItem('targetUserId') || '1');
           setTargetUserId(savedTargetUserId);
           setTargetUserName(sessionStorage.getItem('targetUserName') || '用户' + savedTargetUserId);
@@ -207,7 +212,8 @@ const OperationSetting = () => {
   };
 
   // 获取指定用户的自动并发状态（管理员用）
-  const fetchAutoStatusForUser = async (userId) => {
+  // updateInputs: 是否更新 inputs 表单，切换用户时为 true，自动刷新时为 false
+  const fetchAutoStatusForUser = async (userId, updateInputs = true) => {
     try {
       const res = await API.get(`/api/system/auto-concurrency-limit/${userId}`);
       const { success, data } = res.data;
@@ -228,17 +234,21 @@ const OperationSetting = () => {
           enabled: data.enabled || { manual: false, auto: false, dedup: true, gpu: false },
           hasPersonalConfig: data.has_personal_config || false,
         });
-        // 更新 inputs 中的并发配置（无论是否有个人配置，都使用 API 返回的值）
-        setInputs(prev => ({
-          ...prev,
-          EnableManualConcurrencyLimit: data.enabled?.manual ? 'true' : 'false',
-          EnableAutoConcurrencyLimit: data.enabled?.auto ? 'true' : 'false',
-          EnableRequestDeduplication: data.enable_request_dedup ? 'true' : 'false',
-          UserBaseConcurrentLimit: data.manual_limit || 5,
-          ConcurrencyWaitTimeout: data.wait_timeout || 30,
-          ConcurrencyCheckInterval: data.check_interval || 100,
-          RequestCacheTTL: data.cache_ttl || 30,
-        }));
+
+        // 只有在需要更新 inputs 时才更新（切换用户时，自动刷新时不更新）
+        if (updateInputs) {
+          // 有个人配置时更新 inputs，无个人配置时使用全局配置（直接使用API返回值）
+          setInputs(prev => ({
+            ...prev,
+            EnableManualConcurrencyLimit: data.enabled?.manual ? 'true' : 'false',
+            EnableAutoConcurrencyLimit: data.enabled?.auto ? 'true' : 'false',
+            EnableRequestDeduplication: data.enable_request_dedup ? 'true' : 'false',
+            UserBaseConcurrentLimit: data.manual_limit || data.wait_timeout || 5,
+            ConcurrencyWaitTimeout: data.wait_timeout || 30,
+            ConcurrencyCheckInterval: data.check_interval || 100,
+            RequestCacheTTL: data.cache_ttl || 30,
+          }));
+        }
       } else {
         showError(data.message || '获取用户配置失败');
       }
@@ -269,19 +279,29 @@ const OperationSetting = () => {
           enabled: data.enabled || { manual: false, auto: false, dedup: true, gpu: false },
           hasPersonalConfig: data.has_personal_config || false,
         });
-        // 如果有个人配置，更新 inputs 中的并发配置
-        if (data.has_personal_config) {
-          setInputs(prev => ({
-            ...prev,
-            EnableManualConcurrencyLimit: data.enabled?.manual ? 'true' : 'false',
-            EnableAutoConcurrencyLimit: data.enabled?.auto ? 'true' : 'false',
-            EnableRequestDeduplication: data.enable_request_dedup ? 'true' : 'false',
-            UserBaseConcurrentLimit: data.manual_limit || 5,
-            ConcurrencyWaitTimeout: data.wait_timeout || 30,
-            ConcurrencyCheckInterval: data.check_interval || 100,
-            RequestCacheTTL: data.cache_ttl || 30,
-          }));
-        }
+        // 缓存全局并发配置（用于备用）
+        const globalConfig = {
+          EnableManualConcurrencyLimit: data.enabled?.manual ? 'true' : 'false',
+          EnableAutoConcurrencyLimit: data.enabled?.auto ? 'true' : 'false',
+          EnableRequestDeduplication: data.enable_request_dedup ? 'true' : 'false',
+          UserBaseConcurrentLimit: data.manual_limit || 5,
+          ConcurrencyWaitTimeout: data.wait_timeout || 30,
+          ConcurrencyCheckInterval: data.check_interval || 100,
+          RequestCacheTTL: data.cache_ttl || 30,
+        };
+        setGlobalConcurrencyInputs(globalConfig);
+
+        // 全局模式下始终使用 API 返回值更新 inputs
+        setInputs(prev => ({
+          ...prev,
+          EnableManualConcurrencyLimit: data.enabled?.manual ? 'true' : 'false',
+          EnableAutoConcurrencyLimit: data.enabled?.auto ? 'true' : 'false',
+          EnableRequestDeduplication: data.enable_request_dedup ? 'true' : 'false',
+          UserBaseConcurrentLimit: data.manual_limit || 5,
+          ConcurrencyWaitTimeout: data.wait_timeout || 30,
+          ConcurrencyCheckInterval: data.check_interval || 100,
+          RequestCacheTTL: data.cache_ttl || 30,
+        }));
       }
     } catch (e) {
       // 忽略错误
@@ -296,8 +316,10 @@ const OperationSetting = () => {
       const res = await API.get(`/api/user/search?keyword=${encodeURIComponent(searchKeyword)}`);
       const { success, data } = res.data;
       if (success && data) {
+        // 按用户ID从小到大排序
+        const sortedData = [...data].sort((a, b) => a.id - b.id);
         // 转换为 Select 组件需要的格式
-        setSearchResults(data.slice(0, 20).map(user => ({
+        setSearchResults(sortedData.slice(0, 20).map(user => ({
           key: user.id,
           text: `${user.username} (ID: ${user.id})`,
           value: user.id,
@@ -330,10 +352,10 @@ const OperationSetting = () => {
     if (inputs.EnableAutoConcurrencyLimit === 'true') {
       const interval = setInterval(() => {
         if (configMode === 'personal' && targetUserId !== 0) {
-          // 个人模式：刷新目标用户的配置
-          fetchAutoStatusForUser(targetUserId);
+          // 个人模式：刷新目标用户的实时状态，不更新 inputs 表单
+          fetchAutoStatusForUser(targetUserId, false);
         } else {
-          // 全局模式：刷新全局配置
+          // 全局模式：刷新全局配置（fetchAutoStatus 只在有个人配置时更新 inputs）
           fetchAutoStatus();
         }
       }, 5000);
@@ -917,10 +939,8 @@ const OperationSetting = () => {
                     searchUsers(searchQuery);
                   }}
                   onOpen={() => {
-                    // 打开时加载所有用户
-                    if (searchResults.length === 0) {
-                      searchUsers('');
-                    }
+                    // 打开时重新加载所有用户
+                    searchUsers('');
                   }}
                   selection
                   search
@@ -1031,6 +1051,10 @@ const OperationSetting = () => {
                     <div>
                       <span style={{ color: '#666', fontSize: '13px' }}>{t('setting.operation.concurrency.actual_limit')}: </span>
                       <span style={{ fontWeight: 'bold', fontSize: '18px', color: '#dc3545' }}>{autoStatus.actualLimit}</span>
+                    </div>
+                    <div>
+                      <span style={{ color: '#666', fontSize: '13px' }}>{t('setting.operation.concurrency.status_avg_duration')}: </span>
+                      <span style={{ fontWeight: 'bold', fontSize: '18px', color: '#007bff' }}>{(autoStatus.metrics.avgDuration / 1000).toFixed(2)}s</span>
                     </div>
                     <div>
                       <span style={{ color: '#666', fontSize: '13px' }}>{t('setting.operation.concurrency.status_load_level')}: </span>

@@ -305,6 +305,21 @@ func GetAutoConcurrencyLimit(c *gin.Context) {
 	evaluator.RefreshMetrics()
 	metrics := evaluator.GetMetrics()
 
+	// 获取平均响应时长
+	// 全局模式：使用所有用户请求时长Top10平均值
+	// 个人模式：有个人配置则使用用户最近一次请求时长，否则与全局模式一致
+	var avgDuration int64
+	if configMode == "global" || !hasPersonalConfig {
+		// 全局模式或无个人配置：使用Top10平均值
+		avgDuration, _ = model.GetTop10AvgElapsedTime()
+		if avgDuration == 0 {
+			avgDuration = 1000
+		}
+	} else {
+		// 个人模式且有个人配置：使用用户最近一次请求时长
+		avgDuration = evaluator.GetUserAvgElapsedTime(userId)
+	}
+
 	// 计算用户级别的动态限制
 	dynamicLimit := evaluator.CalculateUserDynamicLimit(userId, baseLimit, currentConcurrent)
 	loadLevel := evaluator.GetLoadLevel()
@@ -314,7 +329,7 @@ func GetAutoConcurrencyLimit(c *gin.Context) {
 		configMode, userId, baseLimit, currentConcurrent, dynamicLimit)
 
 	// 计算各因子值
-	durationFactor := concurrency.CalculateDurationFactor(metrics.AvgRequestDuration)
+	durationFactor := concurrency.CalculateDurationFactor(avgDuration)
 	concurrentFactor := concurrency.CalculateConcurrentFactor(currentConcurrent, baseLimit)
 	trendFactor := evaluator.CalculateUserTrendFactor(userId)
 	gpuFactor := concurrency.CalculateGPUFactor(metrics.GPUKVCacheUsage)
@@ -351,7 +366,7 @@ func GetAutoConcurrencyLimit(c *gin.Context) {
 				"gpu":        concurrency.GetCurrentConfigInt("GPUFactorWeight", config.GPUFactorWeight),
 			},
 			"metrics": gin.H{
-				"avg_duration":     metrics.AvgRequestDuration,
+				"avg_duration":     avgDuration,
 				"gpu_usage":        metrics.GPUKVCacheUsage,
 				"success_rate":     metrics.SuccessRate,
 				"running_requests": metrics.RunningRequests,
@@ -512,6 +527,20 @@ func GetAutoConcurrencyLimitForUser(c *gin.Context) {
 	evaluator.RefreshMetrics()
 	metrics := evaluator.GetMetrics()
 
+	// 获取平均响应时长
+	// 有个人配置则使用用户最近一次请求时长，否则使用Top10平均值
+	var avgDuration int64
+	if hasPersonalConfig {
+		// 有个人配置：使用用户最近一次请求时长
+		avgDuration = evaluator.GetUserAvgElapsedTime(targetUserId)
+	} else {
+		// 无个人配置：使用Top10平均值
+		avgDuration, _ = model.GetTop10AvgElapsedTime()
+		if avgDuration == 0 {
+			avgDuration = 1000
+		}
+	}
+
 	// 计算用户级别的动态限制
 	dynamicLimit := evaluator.CalculateUserDynamicLimit(targetUserId, baseLimit, currentConcurrent)
 	loadLevel := evaluator.GetLoadLevel()
@@ -536,7 +565,7 @@ func GetAutoConcurrencyLimitForUser(c *gin.Context) {
 			"cache_ttl":           cacheTTL,
 			"enable_request_dedup": dedupEnabled,
 			"factors": gin.H{
-				"duration":   concurrency.CalculateDurationFactor(metrics.AvgRequestDuration),
+				"duration":   concurrency.CalculateDurationFactor(avgDuration),
 				"concurrent": concurrency.CalculateConcurrentFactor(currentConcurrent, baseLimit),
 				"trend":      evaluator.CalculateUserTrendFactor(targetUserId),
 				"gpu":        concurrency.CalculateGPUFactor(metrics.GPUKVCacheUsage),
@@ -548,7 +577,7 @@ func GetAutoConcurrencyLimitForUser(c *gin.Context) {
 				"gpu":        concurrency.GetCurrentConfigInt("GPUFactorWeight", config.GPUFactorWeight),
 			},
 			"metrics": gin.H{
-				"avg_duration":     metrics.AvgRequestDuration,
+				"avg_duration":     avgDuration,
 				"gpu_usage":        metrics.GPUKVCacheUsage,
 				"success_rate":     metrics.SuccessRate,
 				"running_requests": metrics.RunningRequests,

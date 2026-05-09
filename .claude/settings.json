@@ -87,7 +87,18 @@
       "Bash(LOG_LEVEL=DEBUG ./one-api --port 3009)",
       "Bash(curl --noproxy '*' -s localhost:3009/api/status)",
       "Bash(curl --noproxy '*' -s localhost:3009/api/system/auto-concurrency-limit -H 'Authorization: Bearer 433fd018f3944fcd9c7d42f81d740739')",
-      "Bash(curl --noproxy '*' -s localhost:3009/api/option/ -H 'Authorization: Bearer 433fd018f3944fcd9c7d42f81d740739')"
+      "Bash(curl --noproxy '*' -s localhost:3009/api/option/ -H 'Authorization: Bearer 433fd018f3944fcd9c7d42f81d740739')",
+      "Bash(curl -s http://localhost:3009/api/system/auto-concurrency-limit/1)",
+      "Bash(url --noproxy '*' -s \"localhost:3009/api/system/auto-concurrency-limit/1\" -H \"Authorization: Bearer 29700412484b44808b96bf86774fa746\")",
+      "Bash(curl --noproxy '*' -s \"localhost:3009/api/system/auto-concurrency-limit\" -H \"Authorization: Bearer 29700412484b44808b96bf86774fa746\")",
+      "Bash(curl --noproxy '*' -s \"localhost:3009/api/system/auto-concurrency-limit/1\" -H \"Authorization: Bearer 29700412484b44808b96bf86774fa746\")",
+      "Bash(PGPASSWORD='NCbmc@123' psql -h localhost -d oneapi -U postgres -c \"SELECT '=== 日志时间范围 ==='; SELECT MIN\\(created_at\\), MAX\\(created_at\\), COUNT\\(*\\) FROM logs WHERE type = 2;\")",
+      "Bash(PGPASSWORD='NCbmc@123' psql -h localhost -d oneapi -U postgres -c \"SELECT '=== 各用户平均请求时长Top10 ==='; SELECT user_id, ROUND\\(AVG\\(elapsed_time\\)::numeric, 0\\) as avg_ms, COUNT\\(*\\) as count FROM logs WHERE type = 2 AND elapsed_time > 0 GROUP BY user_id ORDER BY avg_ms DESC LIMIT 10;\")",
+      "Bash(PGPASSWORD='NCbmc@123' psql -h localhost -d oneapi -U postgres -c \"SELECT '=== 用户ID=1 最近5次请求 ==='; SELECT id, user_id, elapsed_time, to_timestamp\\(created_at\\) as time FROM logs WHERE user_id = 1 AND type = 2 AND elapsed_time > 0 ORDER BY created_at DESC LIMIT 5;\")",
+      "Bash(PGPASSWORD=NCbmc@123 psql -h localhost -d oneapi -U postgres -c ' *)",
+      "Bash(curl --noproxy '*' -s \"localhost:3009/api/system/concurrency-config-mode\" -H \"Authorization: Bearer 29700412484b44808b96bf86774fa746\")",
+      "Bash(curl --noproxy '*' -s \"localhost:3009/api/system/auto-concurrency-limit/2\" -H \"Authorization: Bearer 29700412484b44808b96bf86774fa746\")",
+      "Bash(curl --noproxy '*' -s localhost:3009/api/system/auto-concurrency-limit/__TRACKED_VAR__ -H 'Authorization: Bearer 29700412484b44808b96bf86774fa746')"
     ],
     "additionalDirectories": [
       "/tmp"

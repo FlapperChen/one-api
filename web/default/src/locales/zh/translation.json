@@ -698,6 +698,7 @@
         "status_load_level": "负载等级",
         "status_gpu_usage": "GPU使用率",
         "status_current_concurrent": "当前并发数",
+        "status_avg_duration": "平均响应时长",
         "load_level_low": "正常",
         "load_level_medium": "中等",
         "load_level_high": "高",
