@@ -248,7 +248,7 @@ func (e *LoadEvaluator) CalculateUserDynamicLimit(userId int, baseLimit int, cur
 	gpuWeight := float64(getConfigInt("GPUFactorWeight", config.GPUFactorWeight)) / 100.0
 
 	// 计算因子
-	durationFactor := CalculateDurationFactor(metrics.AvgRequestDuration)
+	durationFactor := CalculateDurationFactor(metrics.AvgRequestDuration, 0) // 0 表示使用全局配置
 	concurrentFactor := CalculateConcurrentFactor(currentConcurrent, baseLimit)
 	trendFactor := e.CalculateUserTrendFactor(userId)
 	gpuFactor := CalculateGPUFactor(metrics.GPUKVCacheUsage)
@@ -366,7 +366,7 @@ func (e *LoadEvaluator) GetUserLoadInfo(userId int, baseLimit int, currentConcur
 		"success_rate":        metrics.SuccessRate,
 		"load_level":          e.GetLoadLevel(),
 		"factors": gin.H{
-			"duration":   CalculateDurationFactor(metrics.AvgRequestDuration),
+			"duration":   CalculateDurationFactor(metrics.AvgRequestDuration, 0), // 0 表示使用全局配置
 			"concurrent": CalculateConcurrentFactor(currentConcurrent, baseLimit),
 			"trend":      trendFactor,
 			"gpu":        CalculateGPUFactor(metrics.GPUKVCacheUsage),
@@ -375,8 +375,14 @@ func (e *LoadEvaluator) GetUserLoadInfo(userId int, baseLimit int, currentConcur
 }
 
 // 请求时长因子
-func CalculateDurationFactor(avgDurationMs int64) float64 {
-	maxThreshold := float64(getConfigInt("ConcurrencyWaitTimeout", config.ConcurrencyWaitTimeout)) * 1000
+// avgDurationMs: 平均响应时长（毫秒）
+// waitTimeoutMs: 等待超时阈值（毫秒），如果为0则使用全局配置
+func CalculateDurationFactor(avgDurationMs int64, waitTimeoutMs int) float64 {
+	maxThreshold := float64(waitTimeoutMs)
+	if maxThreshold <= 0 {
+		// 如果未提供 waitTimeoutMs，从全局配置读取（单位是秒，转为毫秒）
+		maxThreshold = float64(getConfigInt("ConcurrencyWaitTimeout", config.ConcurrencyWaitTimeout)) * 1000
+	}
 	if maxThreshold <= 0 {
 		maxThreshold = 30000
 	}

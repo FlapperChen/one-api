@@ -258,7 +258,8 @@ const OperationSetting = () => {
   };
 
   // 获取自动并发限制状态
-  const fetchAutoStatus = async () => {
+  // updateInputs: 是否更新 inputs 表单，切换用户/初始化时为 true，自动刷新时为 false
+  const fetchAutoStatus = async (updateInputs = true) => {
     try {
       const res = await API.get('/api/system/auto-concurrency-limit');
       const { success, data } = res.data;
@@ -291,17 +292,19 @@ const OperationSetting = () => {
         };
         setGlobalConcurrencyInputs(globalConfig);
 
-        // 全局模式下始终使用 API 返回值更新 inputs
-        setInputs(prev => ({
-          ...prev,
-          EnableManualConcurrencyLimit: data.enabled?.manual ? 'true' : 'false',
-          EnableAutoConcurrencyLimit: data.enabled?.auto ? 'true' : 'false',
-          EnableRequestDeduplication: data.enable_request_dedup ? 'true' : 'false',
-          UserBaseConcurrentLimit: data.manual_limit || 5,
-          ConcurrencyWaitTimeout: data.wait_timeout || 30,
-          ConcurrencyCheckInterval: data.check_interval || 100,
-          RequestCacheTTL: data.cache_ttl || 30,
-        }));
+        // 只有在需要更新 inputs 时才更新（初始化/切换用户时，自动刷新时不更新）
+        if (updateInputs) {
+          setInputs(prev => ({
+            ...prev,
+            EnableManualConcurrencyLimit: data.enabled?.manual ? 'true' : 'false',
+            EnableAutoConcurrencyLimit: data.enabled?.auto ? 'true' : 'false',
+            EnableRequestDeduplication: data.enable_request_dedup ? 'true' : 'false',
+            UserBaseConcurrentLimit: data.manual_limit || 5,
+            ConcurrencyWaitTimeout: data.wait_timeout || 30,
+            ConcurrencyCheckInterval: data.check_interval || 100,
+            RequestCacheTTL: data.cache_ttl || 30,
+          }));
+        }
       }
     } catch (e) {
       // 忽略错误
@@ -355,8 +358,8 @@ const OperationSetting = () => {
           // 个人模式：刷新目标用户的实时状态，不更新 inputs 表单
           fetchAutoStatusForUser(targetUserId, false);
         } else {
-          // 全局模式：刷新全局配置（fetchAutoStatus 只在有个人配置时更新 inputs）
-          fetchAutoStatus();
+          // 全局模式：刷新全局状态，不更新 inputs 表单（避免覆盖用户输入）
+          fetchAutoStatus(false);
         }
       }, 5000);
       return () => clearInterval(interval);

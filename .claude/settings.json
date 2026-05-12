@@ -98,7 +98,8 @@
       "Bash(PGPASSWORD=NCbmc@123 psql -h localhost -d oneapi -U postgres -c ' *)",
       "Bash(curl --noproxy '*' -s \"localhost:3009/api/system/concurrency-config-mode\" -H \"Authorization: Bearer 29700412484b44808b96bf86774fa746\")",
       "Bash(curl --noproxy '*' -s \"localhost:3009/api/system/auto-concurrency-limit/2\" -H \"Authorization: Bearer 29700412484b44808b96bf86774fa746\")",
-      "Bash(curl --noproxy '*' -s localhost:3009/api/system/auto-concurrency-limit/__TRACKED_VAR__ -H 'Authorization: Bearer 29700412484b44808b96bf86774fa746')"
+      "Bash(curl --noproxy '*' -s localhost:3009/api/system/auto-concurrency-limit/__TRACKED_VAR__ -H 'Authorization: Bearer 29700412484b44808b96bf86774fa746')",
+      "Bash(curl -s \"http://localhost:3009/api/system/auto-concurrency-limit\")"
     ],
     "additionalDirectories": [
       "/tmp"

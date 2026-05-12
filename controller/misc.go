@@ -328,8 +328,8 @@ func GetAutoConcurrencyLimit(c *gin.Context) {
 	logger.Infof(c.Request.Context(), "[GetAutoConcurrencyLimit] mode=%s, userId=%d, baseLimit=%d, currentConcurrent=%d, dynamicLimit=%d",
 		configMode, userId, baseLimit, currentConcurrent, dynamicLimit)
 
-	// 计算各因子值
-	durationFactor := concurrency.CalculateDurationFactor(avgDuration)
+	// 计算各因子值（使用该用户/配置的 waitTimeout 计算时长因子）
+	durationFactor := concurrency.CalculateDurationFactor(avgDuration, waitTimeout*1000)
 	concurrentFactor := concurrency.CalculateConcurrentFactor(currentConcurrent, baseLimit)
 	trendFactor := evaluator.CalculateUserTrendFactor(userId)
 	gpuFactor := concurrency.CalculateGPUFactor(metrics.GPUKVCacheUsage)
@@ -565,7 +565,7 @@ func GetAutoConcurrencyLimitForUser(c *gin.Context) {
 			"cache_ttl":           cacheTTL,
 			"enable_request_dedup": dedupEnabled,
 			"factors": gin.H{
-				"duration":   concurrency.CalculateDurationFactor(avgDuration),
+				"duration":   concurrency.CalculateDurationFactor(avgDuration, waitTimeout*1000),
 				"concurrent": concurrency.CalculateConcurrentFactor(currentConcurrent, baseLimit),
 				"trend":      evaluator.CalculateUserTrendFactor(targetUserId),
 				"gpu":        concurrency.CalculateGPUFactor(metrics.GPUKVCacheUsage),
